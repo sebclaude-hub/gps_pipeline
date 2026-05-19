@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtuelle Umgebungen
+.venv/
+venv/
+env/
+
+# Daten und Output (nicht im Repo)
+data/
+output/
+*.tif
+*.feather
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
