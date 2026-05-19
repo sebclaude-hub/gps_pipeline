@@ -6,6 +6,56 @@
 
 ---
 
+## System-Eigenheiten (Windows / PowerShell) — was funktionierte, was nicht
+
+### GitHub / SSH
+- **SSH-Authentifizierung schlug fehl** (`Host key verification failed`) obwohl
+  `gh auth login` mit SSH durchgelaufen war. Ursache: `known_hosts` war durch
+  einen fehlgeschlagenen `ssh-keyscan`-Aufruf (stderr-Mixing in PS 5.1) korrumpiert.
+  → **Lösung:** GitHub-Hostkeys manuell als String in `~/.ssh/known_hosts` schreiben
+    (die offiziellen Fingerprints von docs.github.com).
+- Danach noch `Permission denied (publickey)` weil der SSH-Agent im Terminal-Kontext
+  von Claude den Key nicht lädt.
+  → **Lösung:** Remote von SSH auf HTTPS umstellen (`git remote set-url origin https://...`)
+    und `gh auth setup-git` aufrufen. HTTPS + gh-Token funktioniert zuverlässig,
+    SSH ist in diesem Setup zu fragil.
+- **`gh` nach Installation nicht gefunden**: PATH wird in laufender PS-Session nicht
+  aktualisiert. → Nach jeder Installation neu laden mit:
+  `$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")`
+
+### Node.js / npm
+- **Node.js war nicht installiert** → `winget install OpenJS.NodeJS.LTS` hat funktioniert.
+- **npm.ps1 wurde blockiert** (ExecutionPolicy): `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force` einmalig ausführen.
+- **`@`-Zeichen in Paketnamen** (`@deck.gl/core`) wird von PowerShell als Splat-Operator
+  missverstanden → Paketnamen **immer in Anführungszeichen**: `npm install --save "@deck.gl/core@^9.1"`.
+- **PATH nach Node-Installation**: auch hier nach Installation erst neu laden (s.o.).
+
+### PowerShell allgemein
+- **Git-Commit-Message mit Heredoc**: Bash-Syntax `<<'EOF'` funktioniert nicht.
+  → PowerShell-Heredoc verwenden: `git commit -m @'...'@` (schließendes `'@` muss
+  am Zeilenanfang stehen, kein Einrücken).
+- **`&&` Operator**: In PS 5.1 nicht verfügbar → stattdessen `;` oder
+  `A; if ($?) { B }` verwenden.
+- **`2>&1` auf native Programme**: In PS 5.1 wraps stderr in ErrorRecord-Objekte
+  und setzt `$?` auf false, auch wenn Exit-Code 0. Besser stderr weglassen oder
+  mit `*>&1` zusammenführen.
+
+### deck.gl (React-Bibliothek)
+- **`@deck.gl/react` nicht gefunden** obwohl in package.json eingetragen: Das Paket
+  heißt in v9 **`deck.gl`** (Haupt-Paket inkl. React-Bindings), nicht `@deck.gl/react`.
+  → `import DeckGL from "deck.gl"` — funktioniert.
+- **`OrbitView` falscher Typ**: OrbitView erwartet `target: [x, y, z]` in kartesischen
+  Koordinaten, nicht `longitude/latitude`. Für GPS-Daten immer **`MapView`** verwenden —
+  der versteht lon/lat nativ und unterstützt 3D-Pitch/Bearing.
+
+### git
+- **`dist/` durch `.gitignore` geblockt**: `git add gps_viewer/dist/` schlägt still
+  fehl. → `git add -f gps_viewer/dist/` zum Force-hinzufügen.
+- **`git config --global` "not in a git directory"**: Tritt nur auf wenn git selbst
+  nicht im PATH ist — war ein temporäres PATH-Problem, kein echter Fehler.
+
+---
+
 ## Projektziel
 
 Die bestehenden Plotly-HTML-Ausgaben durch eine React/TypeScript-App mit
