@@ -1,0 +1,124 @@
+/**
+ * 3D-Track-Viewer: deck.gl-Canvas mit Vorhang, Terrain und Positions-Marker.
+ */
+import { useCallback, useMemo, useState } from "react";
+import DeckGL from "deck.gl";
+import { MapView } from "@deck.gl/core";
+import { ScatterplotLayer, PathLayer } from "@deck.gl/layers";
+
+import type { TrackData, DemLod, ViewState } from "../types";
+import { buildCurtainSegments, makeCurtainLayer } from "../layers/curtainLayer";
+import { makeTerrainLayer } from "../layers/terrainLayer";
+import { getDefaultPalette, quantileColor } from "../utils/quantile";
+
+interface Props {
+  track: TrackData;
+  dem: DemLod | null;
+  activeIdx: number;
+  onZoomChange?: (zoom: number) => void;
+}
+
+function buildInitialViewState(track: TrackData): ViewState {
+  const { lon_min, lat_min, lon_max, lat_max } = track.meta.bounds;
+  return {
+    longitude: (lon_min + lon_max) / 2,
+    latitude: (lat_min + lat_max) / 2,
+    zoom: 10,
+    pitch: 45,
+    bearing: 0,
+  };
+}
+
+export function TrackViewer({ track, dem, activeIdx, onZoomChange }: Props) {
+  const [viewState, setViewState] = useState<ViewState>(
+    () => buildInitialViewState(track)
+  );
+
+  const nQ = track.quantile_breaks.n_quantiles;
+  const palette = useMemo(() => getDefaultPalette(nQ), [nQ]);
+
+  // Vorhang-Segmente (nur neu berechnen wenn Track oder DEM wechselt)
+  const curtainSegments = useMemo(
+    () => buildCurtainSegments(track, dem?.grid ?? null),
+    [track, dem]
+  );
+
+  // Aktiver Punkt (Positions-Marker)
+  const activePt = useMemo(() => {
+    const { lon, lat, alt, speed_q_idx } = track.points;
+    const idx = Math.max(0, Math.min(activeIdx, lon.length - 1));
+    return [{
+      lon: lon[idx],
+      lat: lat[idx],
+      alt: alt[idx] ?? 0,
+      qIdx: speed_q_idx[idx],
+    }];
+  }, [track, activeIdx]);
+
+  const layers = useMemo(() => {
+    const result = [];
+
+    // 1. Terrain-Mesh
+    if (dem) result.push(makeTerrainLayer(dem));
+
+    // 2. Vorhang
+    if (track.meta.track_mode === "flight" || curtainSegments.length > 0) {
+      result.push(makeCurtainLayer(curtainSegments, nQ));
+    } else {
+      // Ground-Track: einfache farbige Linie
+      result.push(new PathLayer({
+        id: "track-path",
+        data: [{
+          path: track.points.lon.map((l, i) => [
+            l, track.points.lat[i], track.points.alt[i] ?? 0,
+          ]),
+          color: [100, 200, 255, 200],
+        }],
+        getPath: (d: any) => d.path,
+        getColor: (d: any) => d.color,
+        getWidth: 3,
+        widthUnits: "pixels",
+        pickable: false,
+      }));
+    }
+
+    // 3. Aktiver Punkt
+    result.push(new ScatterplotLayer({
+      id: "active-point",
+      data: activePt,
+      getPosition: (d: any) => [d.lon, d.lat, d.alt],
+      getRadius: 6,
+      radiusUnits: "pixels",
+      getFillColor: (d: any) => quantileColor(d.qIdx, palette),
+      getLineColor: [255, 255, 255, 220],
+      lineWidthMinPixels: 2,
+      stroked: true,
+      pickable: false,
+    }));
+
+    return result;
+  }, [dem, curtainSegments, nQ, activePt, palette, track]);
+
+  const handleViewStateChange = useCallback(({ viewState: vs }: any) => {
+    setViewState(vs);
+    onZoomChange?.(vs.zoom);
+  }, [onZoomChange]);
+
+  return (
+    <DeckGL
+      views={new MapView({ id: "map", repeat: false })}
+      viewState={viewState}
+      controller={{ dragRotate: true, touchRotate: true }}
+      layers={layers}
+      onViewStateChange={handleViewStateChange}
+      style={{ position: "relative", width: "100%", height: "100%" }}
+    >
+      <div style={{
+        position: "absolute", bottom: 8, right: 8,
+        color: "#aaa", fontSize: 11, pointerEvents: "none",
+      }}>
+        {track.meta.name} · {track.meta.n_points} Punkte
+      </div>
+    </DeckGL>
+  );
+}

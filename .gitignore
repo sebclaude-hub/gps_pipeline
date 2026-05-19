@@ -18,6 +18,9 @@ output/
 *.tif
 *.feather
 
+# Node
+gps_viewer/node_modules/
+
 # IDE
 .vscode/
 .idea/

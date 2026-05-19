@@ -31,6 +31,8 @@ from .terrain.dem import (
 from .visualization.three_d import visualize_3d
 from .visualization.track_with_satellites import render_track_with_satellites
 from .visualization.multi_track import visualize_multiple
+from .export.json_export import export_track_json, export_satellite_json
+from .export.dem_lod import export_dem_lods
 
 
 def process_nmea(file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -180,6 +182,121 @@ def render_visualizations(
             dem_data=dem_data,
             track_z_offset=track_z_offset,
         )
+
+
+def export_for_viewer(
+    df_c: pd.DataFrame,
+    output_dir: Path,
+    *,
+    name_prefix: str,
+    df_raw: Optional[pd.DataFrame] = None,
+    dem_paths: Optional[list] = None,
+    source_type: str = "nmea",
+    z_offset_mode=None,
+) -> Path:
+    """Exportiert Track + DEM als statische JSON-Dateien für den React-Viewer.
+
+    Erzeugt in ``output_dir``:
+      * ``track.json``          — Track-Punkte, Quantile, Metadaten
+      * ``satellites.json``     — GSV-Daten (nur wenn df_raw mit GSV übergeben)
+      * ``{prefix}_dem_lod0.json`` bis ``_lod2.json``  — DEM in 3 Auflösungen
+      * ``manifest.json``       — Liste der vorhandenen Dateien (für React)
+
+    Parameters
+    ----------
+    df_c : pd.DataFrame
+        Schema-C-DataFrame.
+    output_dir : Path
+        Zielverzeichnis (wird angelegt wenn nicht vorhanden).
+    name_prefix : str
+        Wird Teil der Dateinamen und des Anzeigenamens im Viewer.
+    df_raw : pd.DataFrame, optional
+        Schema-A-DataFrame für GSV-Satellitendaten (nur NMEA).
+    dem_paths : list of Path, optional
+        GeoTIFF-Dateien für die Terrain-Visualisierung.
+    source_type : str
+        "nmea" | "gpx" | "kml" — wird in track.json gespeichert.
+    z_offset_mode : "auto" | "none" | None | float, optional
+        Überschreibt config.TRACK_Z_OFFSET für DEM-Enrichment.
+
+    Returns
+    -------
+    Path
+        output_dir (für Chaining und Logging).
+    """
+    import json as _json
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    mode = z_offset_mode if z_offset_mode is not None else TRACK_Z_OFFSET
+
+    # Terrain-Enrichment (falls DEM vorhanden) — identische Logik wie render_visualizations
+    dem_data_lod = None  # Zwischenspeicher der rohen DEM-Bounds für LOD-Export
+    if dem_paths:
+        bounds = get_track_bounds(df_c)
+        track_z_offset = 0.0
+
+        if mode in ("none", None, 0):
+            track_z_offset = 0.0
+        elif mode == "auto":
+            stats = compare_track_dem(df_c, dem_paths)
+            if stats:
+                mean_median_gap = abs(stats["mean_diff"] - stats["median_diff"])
+                track_z_offset = 0.0 if mean_median_gap > 50 else stats["suggested_offset"]
+        elif isinstance(mode, (int, float)):
+            track_z_offset = float(mode)
+
+        df_c = enrich_terrain_elevation(df_c, dem_paths, track_z_offset=track_z_offset)
+        dem_data_lod = bounds   # nur Bounds weitergeben, LOD-Export macht eigene Loads
+
+    # 1. track.json
+    track_path = output_dir / "track.json"
+    export_track_json(df_c, track_path, name_prefix=name_prefix)
+
+    # Patch: source_type in Metadaten korrigieren
+    import json as _json2
+    with open(track_path, "r", encoding="utf-8") as f:
+        track_payload = _json2.load(f)
+    track_payload["meta"]["source_type"] = source_type
+    with open(track_path, "w", encoding="utf-8") as f:
+        _json2.dump(track_payload, f, allow_nan=False, separators=(",", ":"))
+
+    # 2. satellites.json (optional)
+    has_satellites = False
+    if df_raw is not None and "gsv_satellites" in df_raw.columns:
+        sat_path = output_dir / "satellites.json"
+        has_satellites = export_satellite_json(df_c, df_raw, sat_path)
+        if has_satellites:
+            # has_satellites-Flag in track.json nachpflegen
+            track_payload["meta"]["has_satellites"] = True
+            with open(track_path, "w", encoding="utf-8") as f:
+                _json2.dump(track_payload, f, allow_nan=False, separators=(",", ":"))
+
+    # 3. DEM-LODs (optional)
+    written_lods: list[int] = []
+    if dem_paths and dem_data_lod is not None:
+        written_lods = export_dem_lods(
+            dem_paths,
+            bounds=dem_data_lod,
+            output_dir=output_dir,
+            name_prefix=name_prefix,
+        )
+
+    # 4. manifest.json — React liest das als erstes
+    manifest = {
+        "track": "track.json",
+        "satellites": "satellites.json" if has_satellites else None,
+        "dem_lods": written_lods,
+        "dem_prefix": name_prefix,
+        "viewer_version": "1.0",
+    }
+    with open(output_dir / "manifest.json", "w", encoding="utf-8") as f:
+        _json.dump(manifest, f, indent=2)
+
+    print(f"\nViewer-Export abgeschlossen: {output_dir}")
+    print(f"  Starten mit: python view.py {output_dir}")
+    return output_dir
 
 
 def render_comparison(
