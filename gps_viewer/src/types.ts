@@ -25,8 +25,11 @@ export interface TrackMeta {
 
 export interface QuantileBreaks {
   speed_kmh: number[];
+  altitude_m: number[];
   n_quantiles: number;
 }
+
+export type ColorMode = "speed" | "altitude";
 
 export interface TrackPoints {
   lat: number[];
@@ -38,6 +41,7 @@ export interface TrackPoints {
   distance_m: (number | null)[];
   timestamp_ms: number[];
   speed_q_idx: number[];
+  alt_q_idx: number[];
   // Diagnosefelder (optional — null wenn Empfänger sie nicht liefert)
   fix_quality?: (number | null)[];
   num_sats?: (number | null)[];

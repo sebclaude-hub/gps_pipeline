@@ -6,7 +6,9 @@ import { TrackViewer } from "./components/TrackViewer";
 import { SkyPlot } from "./components/SkyPlot";
 import { TrackSlider } from "./components/TrackSlider";
 import { ColorLegend } from "./components/ColorLegend";
+import { ColorModeToggle } from "./components/ColorModeToggle";
 import { InfoPanel } from "./components/InfoPanel";
+import type { ColorMode } from "./types";
 import { formatDuration, formatDistance } from "./utils/formatters";
 
 // Manifest-Daten werden von view.py als inline-Script injiziert
@@ -26,6 +28,7 @@ export default function App() {
   const { data: track, loading: trackLoading, error } = useTrackData();
   const [activeIdx, setActiveIdx] = useState(0);
   const [zoom, setZoom] = useState(10);
+  const [colorMode, setColorMode] = useState<ColorMode>("speed");
 
   const hasSat = track?.meta.has_satellites ?? false;
   const { data: satData } = useSatelliteData(hasSat);
@@ -74,9 +77,11 @@ export default function App() {
             track={track}
             dem={demLod}
             activeIdx={activeIdx}
+            colorMode={colorMode}
             onZoomChange={handleZoom}
           />
-          <ColorLegend breaks={track.quantile_breaks} />
+          <ColorModeToggle value={colorMode} onChange={setColorMode} />
+          <ColorLegend breaks={track.quantile_breaks} colorMode={colorMode} />
         </div>
 
         <div style={sidePanelStyle}>

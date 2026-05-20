@@ -51,13 +51,17 @@ def _safe_float_list(series: pd.Series, decimals: int = 4) -> list:
 
 
 def _detect_track_mode(df_c: pd.DataFrame) -> str:
-    """'flight' wenn Track im Median >30 m über Terrain liegt, sonst 'ground'."""
+    """'flight' wenn Track im Median >100 m über Terrain liegt, sonst 'ground'.
+
+    100 m ist hoch genug, um GPS-Rauschen und DEM-Auflösungsfehler zu absorbieren,
+    aber niedrig genug um Gleitschirmflüge zuverlässig zu erfassen.
+    """
     if "track_above_terrain" not in df_c.columns:
         return "ground"
     above = df_c["track_above_terrain"].dropna()
     if above.empty:
         return "ground"
-    return "flight" if float(above.median()) > 30.0 else "ground"
+    return "flight" if float(above.median()) > 100.0 else "ground"
 
 
 def _compute_quantile_breaks(
@@ -139,8 +143,9 @@ def export_track_json(
     ts = pd.to_datetime(df_c["timestamp_utc"], utc=True)
     ts_ms = (ts.astype("int64") // 1_000_000).tolist()
 
-    # Quantile
+    # Quantile (Speed + Höhe)
     breaks, q_idx = _compute_quantile_breaks(speed, n_quantiles)
+    alt_breaks, alt_q_idx = _compute_quantile_breaks(alt, n_quantiles)
 
     # Bounds
     bounds = {
@@ -175,6 +180,7 @@ def export_track_json(
         },
         "quantile_breaks": {
             "speed_kmh": breaks,
+            "altitude_m": alt_breaks,
             "n_quantiles": n_quantiles,
         },
         "points": {
@@ -187,6 +193,7 @@ def export_track_json(
             "distance_m":   _safe_float_list(dist, 1),
             "timestamp_ms": ts_ms,
             "speed_q_idx":  q_idx.tolist(),
+            "alt_q_idx":    alt_q_idx.tolist(),
             "fix_quality":  _safe_list(fix_quality, dtype=int),
             "num_sats":     _safe_list(num_sats, dtype=int),
             "hdop":         _safe_float_list(hdop, 1),

@@ -6,15 +6,16 @@ import DeckGL from "deck.gl";
 import { MapView } from "@deck.gl/core";
 import { ScatterplotLayer, PathLayer } from "@deck.gl/layers";
 
-import type { TrackData, DemLod, ViewState } from "../types";
+import type { TrackData, DemLod, ViewState, ColorMode } from "../types";
 import { buildCurtainSegments, makeCurtainLayer } from "../layers/curtainLayer";
 import { makeTerrainLayer } from "../layers/terrainLayer";
-import { getDefaultPalette, quantileColor } from "../utils/quantile";
+import { computeRankPositions, plasmaColor, type Rgba } from "../utils/colorMap";
 
 interface Props {
   track: TrackData;
   dem: DemLod | null;
   activeIdx: number;
+  colorMode: ColorMode;
   onZoomChange?: (zoom: number) => void;
 }
 
@@ -29,16 +30,13 @@ function buildInitialViewState(track: TrackData): ViewState {
   };
 }
 
-export function TrackViewer({ track, dem, activeIdx, onZoomChange }: Props) {
+const FALLBACK: Rgba = [150, 150, 150, 180];
+
+export function TrackViewer({ track, dem, activeIdx, colorMode, onZoomChange }: Props) {
   const [viewState, setViewState] = useState<ViewState>(
     () => buildInitialViewState(track)
   );
 
-  const nQ = track.quantile_breaks.n_quantiles;
-  const palette = useMemo(() => getDefaultPalette(nQ), [nQ]);
-
-  // Z-Exaggeration: Höhenunterschiede übertreiben damit sie sichtbar werden.
-  // altBase = minimale Höhe im Track; zScale = Übertreibungsfaktor.
   const Z_SCALE = 15;
   const altBase = useMemo(() => {
     const alts = track.points.alt.filter((a): a is number => a !== null);
@@ -49,67 +47,92 @@ export function TrackViewer({ track, dem, activeIdx, onZoomChange }: Props) {
     [altBase]
   );
 
-  // Vorhang-Segmente (nur neu berechnen wenn Track oder DEM wechselt)
+  // Rang-Position pro Punkt für den aktiven Color-Mode
+  const rankPositions = useMemo(() => {
+    const values = colorMode === "speed"
+      ? track.points.speed_kmh
+      : track.points.alt;
+    return computeRankPositions(values);
+  }, [track, colorMode]);
+
   const curtainSegments = useMemo(
-    () => buildCurtainSegments(track, dem?.grid ?? null, altBase, Z_SCALE),
-    [track, dem, altBase]
+    () => buildCurtainSegments(track, dem?.grid ?? null, rankPositions, altBase, Z_SCALE),
+    [track, dem, rankPositions, altBase]
   );
 
-  // Aktiver Punkt (Positions-Marker)
+  // Track-Segmente als individuelle Paths (für farbige PathLayer)
+  const pathSegments = useMemo(() => {
+    const { lon, lat, alt } = track.points;
+    const segs: { path: [number, number, number][]; t: number }[] = [];
+    for (let i = 0; i < lon.length - 1; i++) {
+      const t_i  = rankPositions[i];
+      const t_i1 = rankPositions[i + 1];
+      let t: number;
+      if (Number.isNaN(t_i) && Number.isNaN(t_i1)) t = NaN;
+      else if (Number.isNaN(t_i)) t = t_i1;
+      else if (Number.isNaN(t_i1)) t = t_i;
+      else t = (t_i + t_i1) / 2;
+      segs.push({
+        path: [
+          [lon[i],     lat[i],     exagAlt(alt[i])],
+          [lon[i + 1], lat[i + 1], exagAlt(alt[i + 1])],
+        ],
+        t,
+      });
+    }
+    return segs;
+  }, [track, rankPositions, exagAlt]);
+
   const activePt = useMemo(() => {
-    const { lon, lat, alt, speed_q_idx } = track.points;
+    const { lon, lat, alt } = track.points;
     const idx = Math.max(0, Math.min(activeIdx, lon.length - 1));
     return [{
       lon: lon[idx],
       lat: lat[idx],
       alt: alt[idx] ?? 0,
-      qIdx: speed_q_idx[idx],
+      t: rankPositions[idx],
     }];
-  }, [track, activeIdx]);
+  }, [track, activeIdx, rankPositions]);
 
   const layers = useMemo(() => {
     const result = [];
 
-    // 1. Terrain-Mesh
     if (dem) result.push(makeTerrainLayer(dem));
 
-    // 2. Track-Linie — immer sichtbar (pixel-breit, unabhängig vom Zoom)
+    result.push(makeCurtainLayer(curtainSegments, colorMode));
+
     result.push(new PathLayer({
       id: "track-path",
-      data: [{
-        path: track.points.lon.map((l, i) => [
-          l, track.points.lat[i], exagAlt(track.points.alt[i] ?? null),
-        ]),
-      }],
+      data: pathSegments,
       getPath: (d: any) => d.path,
-      getColor: [180, 180, 180, 120],
-      getWidth: 1,
+      getColor: (d: any) => Number.isNaN(d.t) ? FALLBACK : plasmaColor(d.t, 255),
+      getWidth: 2,
       widthUnits: "pixels",
       pickable: false,
+      updateTriggers: {
+        getColor: [colorMode],
+      },
     }));
 
-    // 3. Vorhang — farbcodierte Höhenfläche
-    //    Für Flüge: sichtbarer Vorhang (große Höhendifferenz).
-    //    Für Boden-Tracks: sehr dünn, wird bei niedrigem Pitch unsichtbar —
-    //    ist aber korrekt und wird bei steilem Pitch (60°+) sichtbar.
-    result.push(makeCurtainLayer(curtainSegments, nQ));
-
-    // 3. Aktiver Punkt
     result.push(new ScatterplotLayer({
       id: "active-point",
       data: activePt,
       getPosition: (d: any) => [d.lon, d.lat, exagAlt(d.alt)],
       getRadius: 6,
       radiusUnits: "pixels",
-      getFillColor: (d: any) => quantileColor(d.qIdx, palette),
-      getLineColor: [255, 255, 255, 220],
+      getFillColor: (d: any) => Number.isNaN(d.t) ? FALLBACK : plasmaColor(d.t, 255),
+      getLineColor: [255, 255, 255, 230],
       lineWidthMinPixels: 2,
       stroked: true,
       pickable: false,
+      updateTriggers: {
+        getFillColor: [colorMode, activeIdx],
+        getPosition: [activeIdx],
+      },
     }));
 
     return result;
-  }, [dem, curtainSegments, nQ, activePt, palette, track]);
+  }, [dem, curtainSegments, pathSegments, activePt, colorMode, exagAlt, activeIdx]);
 
   const handleViewStateChange = useCallback(({ viewState: vs }: any) => {
     setViewState(vs);

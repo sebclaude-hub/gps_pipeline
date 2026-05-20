@@ -106,6 +106,25 @@ Kernfeatures:
 - `src/utils/` — quantile.ts, demMesh.ts, formatters.ts
 - `dist/` ist committed (kein Node-Build nötig für Endnutzer)
 
+### Schritt 3b ✅ — Kontinuierlicher Farbverlauf + Color-Mode-Toggle (Session 2026-05-20, Teil 2)
+- **`json_export.py`**: zusätzlich `points.alt_q_idx[]` und `quantile_breaks.altitude_m`
+  exportiert, damit der Viewer zwischen Speed- und Höhen-Färbung umschalten kann.
+- **`utils/colorMap.ts`** (neu): kontinuierlicher Plasma-Verlauf via
+  `computeRankPositions()` — jeder Punkt bekommt `t = rank(value) / (N-1)` und
+  daraus `interpolatePlasma(t)`. Robust gegen Ausreißer.
+  **WICHTIG**: `interpolatePlasma` aus d3-scale-chromatic 3.x liefert **Hex-Strings**
+  (`#cc4778`), nicht `rgb(...)`. `parseRgb` muss beide Formate parsen, sonst
+  fällt alles auf Grau zurück. (War der Bug "alles grau" am Anfang.)
+- **`TrackViewer.tsx`**: PathLayer rendert jetzt n-1 Einzel-Segmente (statt eine
+  graue Linie) mit individuellen Plasma-Farben. Curtain und Aktiv-Marker teilen
+  den gleichen Verlauf. updateTriggers auf `colorMode` damit Toggle live wirkt.
+- **`ColorLegend.tsx`**: vertikaler Plasma-Balken + Tickmarks an den Quantil-
+  Grenzen. `distributeTicks()` setzt rohe Position = (value-min)/(max-min),
+  spreizt aber Lücken < 10% auf 10% (proportional Re-Verteilung der großen
+  Lücken). So bleiben Verhältnisse sichtbar und Labels lesbar.
+- **`ColorModeToggle.tsx`** (neu): Pill-Switch, Knubbel gleitet mit 180ms
+  cubic-bezier-Transition zwischen "km/h" und "Höhe".
+
 ### Schritt 3 ✅ (weitgehend) — Curtain-Layer + End-to-End-Test (Session 2026-05-20)
 - **`view.py`**: Manifest-Injektion implementiert — `window.__GPS_MANIFEST__` wird
   als inline `<script>` in `index.html` injiziert. Ohne das lädt React keine Terrain-Daten.
@@ -139,13 +158,19 @@ Kernfeatures:
 
 ### Bekannte Bugs
 
-- [ ] **`track_mode`-Erkennung falsch** — kritischer Bug! `_detect_track_mode()` in
-  `gps_pipeline/export/json_export.py` gibt immer `"ground"` zurück wenn keine
-  Terrain-Daten vorhanden sind, weil sie nur `track_above_terrain` prüft (das nur
-  beim DEM-Export befüllt wird). Ein Flug-Track ohne DEM wird also als Boden-Track
-  klassifiziert. **Fix:** Fallback-Heuristik einbauen — z.B. wenn
-  `speed_kmh.median() > 80` oder `altitude_corrected.max() - .min() > 200` →
-  `"flight"`. Betroffen: `json_export.py` Zeile mit `_detect_track_mode`.
+- [ ] **Curtain unsichtbar** — auch im Color-Mode noch nicht sichtbar. Vermutung:
+  SolidPolygonLayer mit `extruded:false` + 3D-Polygon liegt zwar in einer
+  vertikalen Ebene, wird aber evtl. von deck.gl nicht korrekt trianguliert.
+  Nächster Schritt: untersuchen ob `extruded:true` mit getElevation/Polygon-Base
+  oder ein TriangleLayer-/PolygonsLayer-Ansatz besser passt.
+
+
+- [x] ~~**`track_mode`-Erkennung falsch**~~ — **angepasst 2026-05-20 (Session 3)**:
+  Schwelle in `_detect_track_mode()` von 30 m auf **100 m** über Terrain angehoben.
+  100 m absorbieren GPS-Rauschen und DEM-Auflösungsfehler, fangen aber Gleitschirm-
+  flüge zuverlässig ein (und schließen Drohnen-Tiefflüge aus). Eine Fallback-
+  Heuristik ohne DEM wurde bewusst NICHT eingebaut — ohne Terrain-Daten kann
+  Drohne nicht von Gleitschirm unterschieden werden; Nutzer soll DEM bereitstellen.
 
 - [x] ~~**Aktiver-Punkt-Marker** lag auf nicht-exaggerierter Höhe~~ — **behoben**:
   `getPosition` nutzt jetzt `exagAlt(d.alt)`.
