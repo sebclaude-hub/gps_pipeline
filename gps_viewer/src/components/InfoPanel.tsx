@@ -28,25 +28,29 @@ export function InfoPanel({ track, activeIdx }: Props) {
   const lat       = pts.lat[idx];
   const lon       = pts.lon[idx];
   const alt       = pts.alt[idx] ?? null;
+  const above     = pts.above_terrain?.[idx] ?? null;
   const speed     = pts.speed_kmh[idx] ?? null;
   const ts        = pts.timestamp_ms[idx];
   const fix       = pts.fix_quality?.[idx] ?? null;
   const numSats   = pts.num_sats?.[idx] ?? null;
   const hdop      = pts.hdop?.[idx] ?? null;
   const vdop      = pts.vdop?.[idx] ?? null;
+  const total     = pts.lat.length;
 
   return (
     <div style={panelStyle}>
       <div style={titleStyle}>Punkt-Info</div>
       <table style={tableStyle}>
         <tbody>
+          <Row label="Punkt #"  value={`${idx + 1} / ${total}`} />
           <Row label="Zeit"     value={ts ? formatTimestamp(ts) : "–"} />
           <Row label="Position" value={
             lat !== null && lon !== null
               ? `${lat.toFixed(6)}° N\n${lon.toFixed(6)}° E`
               : "–"
           } multiline />
-          <Row label="Höhe"        value={formatAltitude(alt)} />
+          <Row label="Höhe MSL"    value={formatAltitude(alt)} />
+          <Row label="Höhe ü.Grd"  value={above !== null ? `${above.toFixed(0)} m` : "–"} />
           <Row label="Geschw."     value={formatSpeed(speed)} />
           <RowDivider />
           <Row label="Fix"         value={fix !== null ? (FIX_LABELS[fix] ?? `${fix}`) : "–"} />

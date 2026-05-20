@@ -1,4 +1,4 @@
-# GPS-Pipeline — Stand 18. Mai 2026
+# GPS-Pipeline — Stand 20. Mai 2026
 
 Dieses Dokument beschreibt den aktuellen Stand nach der mehrtägigen Refactor-
 und Ausbau-Session. Es ersetzt den älteren `refactor_plan.md` (Stand 4. Mai),
@@ -207,6 +207,65 @@ render_visualizations(df_c, Path("output"),
 save_df(df_c, "track.feather")
 df_c2 = load_df("track.feather")
 ```
+
+## React-Viewer (Schritt 3+4) — 19./20. Mai 2026
+
+Der React/TypeScript GPS-Viewer (`gps_viewer/`) wurde in zwei Sessions um
+folgende Features erweitert:
+
+### Schritt 3: Farbgebung, Legende, Vorhang, Toggles
+
+- **Plasma-Farbverlauf kontinuierlich** (rank-basiert, nicht diskret):
+  `computeRankPositions()` in `colorMap.ts` berechnet t = rank/(N-1) pro
+  Punkt, Durchschnittsrang bei Ties, NaN bei null-Werten.
+  `plasmaColor(t, alpha)` gibt [r,g,b,a] zurück.
+  Workaround: `interpolatePlasma` liefert Hex-Strings (`#cc4778`), nicht
+  `rgb(r,g,b)` — `parseRgb()` parst beide Formate.
+
+- **Speed/Höhe-Toggle** (ToggleSwitch.tsx): Generischer Pill-Switch
+  `<ToggleSwitch<T>>`, Knopf gleitet mit CSS-Transition.
+
+- **Proportionale Farbskalen-Legende** (ColorLegend.tsx): Ticks an
+  Quantil-Grenzen, proportional zum Wertebereich positioniert.
+  Iterativer Mindestabstand-Algorithmus (10%) verhindert Überlappungen.
+
+- **Vorhang (Curtain)** sichtbar gemacht:
+  SolidPolygonLayer mit `extruded: true` + perpendikulärem EPS-Footprint
+  (1e-6 Grad ≈ 11 cm). Hintergrund: earcut trianguliert nur in XY — ein
+  senkrechtes Polygon hat Null-XY-Fläche → 0 Dreiecke → unsichtbar.
+  Fix: dünner horizontaler Grundriss, `getElevation` extrudiert nach oben.
+
+- **Vorhang-Toggle** (CurtainMode): gleicher Pill-Switch-Stil.
+
+- **json_export.py**: `_detect_track_mode()` Schwelle 30 m → 100 m;
+  kein DEM-Fallback. `quantile_breaks.altitude_m` und `points.alt_q_idx`
+  exportiert.
+
+### Schritt 4: DEM/Terrain, Z-Scale, InfoPanel
+
+- **DEM-Integration end-to-end**: `useDemLod` lädt Terrain-LODs per Zoom.
+  `gridToMesh()` konvertiert DEM-Grid in Meter-Offsets vom Bounds-Center
+  (equirektangular: `m_per_lon = 111320 * cos(lat_center_rad)`).
+  SimpleMeshLayer nutzt `anchor = [lon_center, lat_center]` als
+  `getPosition`-Anker — Mesh-Positionen sind Offsets davon, NICHT Lon/Lat.
+
+- **Terrain sichtbar** (`material: false`): material mit ambient/diffuse
+  benötigt LightingEffect in deck.gl; ohne diesen rendert das Mesh schwarz.
+  Lösung: `material: false` → Flat-Shading, sichtbares Grau-Terrain.
+
+- **Curtain mit negativem above_terrain** (GPS-Rauschen, −1 m):
+  Früher `Math.max(0, top - bot)` → Höhe = 0 → Curtain unsichtbar.
+  Jetzt: `base = min(top, bot)`, `height = abs(top - bot)`.
+
+- **Z-Exaggeration konsistent**: `exag(h) = altBase + (h−altBase) * zScale`
+  wird in Track, Curtain UND Terrain-Mesh gleich angewendet.
+  zScale war zuvor in TrackViewer.tsx als Konstante 15 hart kodiert.
+
+- **ZScaleButtons.tsx**: Pill-Button-Gruppe 1×, 2×, 3×, 5×, 7.5×, 10×;
+  gleicher Indigo-Gradient wie ToggleSwitch. Default: 3×.
+
+- **InfoPanel**: neue Felder „Punkt #" (1-basiert, Gesamt) und
+  „Höhe ü.Grd" (above_terrain aus DEM). „Höhe" umbenannt in „Höhe MSL".
 
 ## TODO / Geplant
 

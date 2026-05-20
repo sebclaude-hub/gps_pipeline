@@ -17,6 +17,7 @@ interface Props {
   activeIdx: number;
   colorMode: ColorMode;
   showCurtain: boolean;
+  zScale: number;
   onZoomChange?: (zoom: number) => void;
 }
 
@@ -33,19 +34,19 @@ function buildInitialViewState(track: TrackData): ViewState {
 
 const FALLBACK: Rgba = [150, 150, 150, 180];
 
-export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, onZoomChange }: Props) {
+export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, zScale, onZoomChange }: Props) {
   const [viewState, setViewState] = useState<ViewState>(
     () => buildInitialViewState(track)
   );
 
-  const Z_SCALE = 15;
+  const Z_SCALE = zScale;
   const altBase = useMemo(() => {
     const alts = track.points.alt.filter((a): a is number => a !== null);
     return alts.length > 0 ? Math.min(...alts) : 0;
   }, [track]);
   const exagAlt = useCallback(
     (alt: number | null) => altBase + ((alt ?? altBase) - altBase) * Z_SCALE,
-    [altBase]
+    [altBase, Z_SCALE]
   );
 
   // Rang-Position pro Punkt für den aktiven Color-Mode
@@ -58,7 +59,7 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, onZ
 
   const curtainSegments = useMemo(
     () => buildCurtainSegments(track, dem?.grid ?? null, rankPositions, altBase, Z_SCALE),
-    [track, dem, rankPositions, altBase]
+    [track, dem, rankPositions, altBase, Z_SCALE]
   );
 
   // Track-Segmente als individuelle Paths (für farbige PathLayer)
@@ -98,7 +99,7 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, onZ
   const layers = useMemo(() => {
     const result = [];
 
-    if (dem) result.push(makeTerrainLayer(dem));
+    if (dem) result.push(makeTerrainLayer(dem, altBase, Z_SCALE));
 
     if (showCurtain) result.push(makeCurtainLayer(curtainSegments, colorMode));
 

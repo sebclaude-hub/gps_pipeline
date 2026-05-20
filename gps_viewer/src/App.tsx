@@ -7,10 +7,12 @@ import { SkyPlot } from "./components/SkyPlot";
 import { TrackSlider } from "./components/TrackSlider";
 import { ColorLegend } from "./components/ColorLegend";
 import { ToggleSwitch } from "./components/ToggleSwitch";
+import { ZScaleButtons } from "./components/ZScaleButtons";
 import { InfoPanel } from "./components/InfoPanel";
 import type { ColorMode } from "./types";
 
 type CurtainMode = "on" | "off";
+const Z_OPTIONS = [1, 2, 3, 5, 7.5, 10];
 import { formatDuration, formatDistance } from "./utils/formatters";
 
 // Manifest-Daten werden von view.py als inline-Script injiziert
@@ -32,6 +34,7 @@ export default function App() {
   const [zoom, setZoom] = useState(10);
   const [colorMode, setColorMode] = useState<ColorMode>("speed");
   const [curtainMode, setCurtainMode] = useState<CurtainMode>("on");
+  const [zScale, setZScale] = useState<number>(3);
 
   const hasSat = track?.meta.has_satellites ?? false;
   const { data: satData } = useSatelliteData(hasSat);
@@ -82,6 +85,7 @@ export default function App() {
             activeIdx={activeIdx}
             colorMode={colorMode}
             showCurtain={curtainMode === "on"}
+            zScale={zScale}
             onZoomChange={handleZoom}
           />
           <div style={togglesStyle}>
@@ -99,6 +103,7 @@ export default function App() {
               onChange={setCurtainMode}
               title="Vorhang ein- oder ausblenden"
             />
+            <ZScaleButtons value={zScale} options={Z_OPTIONS} onChange={setZScale} />
           </div>
           <ColorLegend breaks={track.quantile_breaks} colorMode={colorMode} />
         </div>

@@ -12,12 +12,32 @@ import type { DemGrid } from "../types";
 export interface DemMesh {
   positions: Float32Array;
   indices: Uint32Array;
+  /** Anker-Position des Mesh in lng/lat (für SimpleMeshLayer.getPosition). */
+  anchor: [number, number];
   /** Normalen (für Beleuchtung, optional berechnet) */
   normals?: Float32Array;
 }
 
-export function gridToMesh(grid: DemGrid): DemMesh {
+/**
+ * Konvertiert ein DEM-Grid zu einem Mesh.
+ *
+ * Wichtig: SimpleMeshLayer interpretiert die Mesh-Positionen als Meter-Offsets
+ * vom getPosition-Anker (auch im LNGLAT-Modus). Wir bauen das Mesh in
+ * meter-offsets vom Bounds-Mittelpunkt und geben diesen als `anchor` zurück.
+ *
+ * Equirectangular-Approximation: gültig für Bereiche bis wenige Grad Ausdehnung.
+ */
+export function gridToMesh(
+  grid: DemGrid,
+  altBase: number = 0,
+  zScale: number = 1,
+): DemMesh {
   const { n_rows, n_cols, lat_min, lat_max, lon_min, lon_max, elevations } = grid;
+
+  const lat_center = (lat_min + lat_max) / 2;
+  const lon_center = (lon_min + lon_max) / 2;
+  const m_per_lon = 111320 * Math.cos((lat_center * Math.PI) / 180);
+  const m_per_lat = 110540;
 
   const positions = new Float32Array(n_rows * n_cols * 3);
   let pIdx = 0;
@@ -26,10 +46,10 @@ export function gridToMesh(grid: DemGrid): DemMesh {
     const lat = lat_min + (r / Math.max(n_rows - 1, 1)) * (lat_max - lat_min);
     for (let c = 0; c < n_cols; c++) {
       const lon = lon_min + (c / Math.max(n_cols - 1, 1)) * (lon_max - lon_min);
-      const elev = elevations[r * n_cols + c];
-      positions[pIdx++] = lon;
-      positions[pIdx++] = lat;
-      positions[pIdx++] = elev ?? 0;
+      const elev = elevations[r * n_cols + c] ?? 0;
+      positions[pIdx++] = (lon - lon_center) * m_per_lon;
+      positions[pIdx++] = (lat - lat_center) * m_per_lat;
+      positions[pIdx++] = altBase + (elev - altBase) * zScale;
     }
   }
 
@@ -55,7 +75,7 @@ export function gridToMesh(grid: DemGrid): DemMesh {
     }
   }
 
-  return { positions, indices };
+  return { positions, indices, anchor: [lon_center, lat_center] };
 }
 
 /**

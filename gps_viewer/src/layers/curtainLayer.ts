@@ -79,14 +79,20 @@ export function buildCurtainSegments(
     else if (Number.isNaN(t_i1)) tSeg = t_i;
     else tSeg = (t_i + t_i1) / 2;
 
+    // Footprint sitzt am unteren Ende der Wand, Höhe immer positiv.
+    // Bei top < bot (Track unter dem Terrain, z.B. GPS-Rauschen) wächst
+    // die Wand vom Track nach oben bis zum Terrain.
+    const base = Math.min(top, bot);
+    const height = Math.abs(top - bot);
+
     segments.push({
       footprint: [
-        [lon_i  + px, lat_i  + py, bot],
-        [lon_i1 + px, lat_i1 + py, bot],
-        [lon_i1 - px, lat_i1 - py, bot],
-        [lon_i  - px, lat_i  - py, bot],
+        [lon_i  + px, lat_i  + py, base],
+        [lon_i1 + px, lat_i1 + py, base],
+        [lon_i1 - px, lat_i1 - py, base],
+        [lon_i  - px, lat_i  - py, base],
       ],
-      height: Math.max(0, top - bot),
+      height,
       t: tSeg,
     });
   }
