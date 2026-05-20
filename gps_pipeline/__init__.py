@@ -9,6 +9,7 @@ from .api import (
     process_kml,
     render_visualizations,
     render_comparison,
+    export_for_viewer,
 )
 
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     "process_kml",
     "render_visualizations",
     "render_comparison",
+    "export_for_viewer",
 ]

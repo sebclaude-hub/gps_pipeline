@@ -587,9 +587,9 @@ def reduce_dem_to_fit(
         reduced_n = (nrows // step) * (ncols // step)
         reduced_size_mb = (3 * reduced_n + 200_000) / (1024 ** 2)
         if reduced_size_mb <= max_html_mb:
-            print(f"⚠ DEM-Auflösung wird automatisch reduziert: "
-                  f"{nrows}×{ncols} → {nrows // step}×{ncols // step} "
-                  f"(geschätzte HTML-Größe {estimated:.0f} MB → {reduced_size_mb:.0f} MB, "
+            print(f"DEM-Auflösung wird automatisch reduziert: "
+                  f"{nrows}x{ncols} -> {nrows // step}x{ncols // step} "
+                  f"(geschätzte HTML-Größe {estimated:.0f} MB -> {reduced_size_mb:.0f} MB, "
                   f"Limit {max_html_mb:.0f} MB). "
                   f"Auf leistungsstarken Systemen kann config.DEM_MAX_HTML_MB "
                   f"hochgesetzt werden.")

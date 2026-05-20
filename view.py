@@ -21,6 +21,7 @@ Voraussetzung: React-App einmalig gebaut mit:
 
 import argparse
 import http.server
+import json
 import os
 import sys
 import threading
@@ -64,7 +65,21 @@ class GpsViewerHandler(http.server.BaseHTTPRequestHandler):
             return
 
         content_type = _guess_mime(file_path)
-        data = file_path.read_bytes()
+
+        if file_path.name == "index.html":
+            html = file_path.read_text(encoding="utf-8")
+            manifest_path = self.output_dir / "manifest.json"
+            if manifest_path.is_file():
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                script = (
+                    f'<script>window.__GPS_MANIFEST__='
+                    f'{json.dumps(manifest, separators=(",", ":"))}'
+                    f'</script>'
+                )
+                html = html.replace("</head>", script + "\n</head>", 1)
+            data = html.encode("utf-8")
+        else:
+            data = file_path.read_bytes()
 
         self.send_response(200)
         self.send_header("Content-Type", content_type)

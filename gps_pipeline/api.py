@@ -140,11 +140,11 @@ def render_visualizations(
                     mean_median_gap = abs(stats["mean_diff"] - stats["median_diff"])
                     if mean_median_gap > 50:
                         track_z_offset = 0.0
-                        print(f"  → track_z_offset = 0 m (Flug erkannt — "
-                              f"automatischer Median-Offset wäre irreführend)")
+                        print(f"  -> track_z_offset = 0 m (Flug erkannt -- "
+                              f"automatischer Median-Offset waere irreführend)")
                     else:
                         track_z_offset = stats["suggested_offset"]
-                        print(f"  → track_z_offset = {track_z_offset:+.1f} m")
+                        print(f"  -> track_z_offset = {track_z_offset:+.1f} m")
             elif isinstance(mode, (int, float)):
                 track_z_offset = float(mode)
                 print(f"Höhen-Offset: fester Wert {track_z_offset:+.1f} m.")

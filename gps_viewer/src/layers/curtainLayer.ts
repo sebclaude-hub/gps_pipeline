@@ -25,31 +25,38 @@ export interface CurtainSegment {
 /**
  * Baut alle Vorhang-Segmente aus den Track-Daten.
  * @param demGrid  Optional: DEM-Grid für Terrain-Höhe; null → Boden = 0
+ * @param altBase  Basis-Höhe für Z-Exaggeration (typisch: min(alt))
+ * @param zScale   Höhen-Übertreibungsfaktor (1 = maßstabstreu)
  */
 export function buildCurtainSegments(
   track: TrackData,
-  demGrid: DemGrid | null
+  demGrid: DemGrid | null,
+  altBase: number = 0,
+  zScale: number = 1,
 ): CurtainSegment[] {
   const { lat, lon, alt, terrain_elev, speed_q_idx } = track.points;
   const n = lat.length;
   const segments: CurtainSegment[] = [];
 
+  const exag = (h: number) => altBase + (h - altBase) * zScale;
+
   for (let i = 0; i < n - 1; i++) {
     const lat_i  = lat[i],    lon_i  = lon[i];
     const lat_i1 = lat[i + 1], lon_i1 = lon[i + 1];
-    const alt_i  = alt[i]  ?? 0;
-    const alt_i1 = alt[i + 1] ?? 0;
+    const alt_i  = exag(alt[i]  ?? altBase);
+    const alt_i1 = exag(alt[i + 1] ?? altBase);
 
     // Terrain-Höhe: bevorzuge vorberechnete terrain_elev, sonst DEM-Sample
     let bot_i: number, bot_i1: number;
     if (terrain_elev[i] !== null && terrain_elev[i] !== undefined) {
-      bot_i  = terrain_elev[i]!;
-      bot_i1 = terrain_elev[i + 1] ?? terrain_elev[i]!;
+      bot_i  = exag(terrain_elev[i]!);
+      bot_i1 = exag(terrain_elev[i + 1] ?? terrain_elev[i]!);
     } else if (demGrid) {
-      bot_i  = sampleDem(demGrid, lon_i,  lat_i)  ?? 0;
-      bot_i1 = sampleDem(demGrid, lon_i1, lat_i1) ?? 0;
+      bot_i  = exag(sampleDem(demGrid, lon_i,  lat_i)  ?? altBase);
+      bot_i1 = exag(sampleDem(demGrid, lon_i1, lat_i1) ?? altBase);
     } else {
-      // Kein Terrain: Vorhang bis zur Grundebene (MSL = 0)
+      // Kein Terrain: Vorhang bis MSL = 0. Der Boden wird NICHT exaggeriert,
+      // damit er bei 0 bleibt — nur die Oberkante (Track) wird überhöht.
       bot_i  = 0;
       bot_i1 = 0;
     }

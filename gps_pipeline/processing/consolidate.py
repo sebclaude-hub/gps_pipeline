@@ -34,6 +34,12 @@ _SCHEMA_B_COLUMNS = [
     "altitude_corrected",
     "speed_kmh",
     "speed_knots",
+    # Diagnose-Felder (optional — NaN wenn Empfänger sie nicht liefert)
+    "gga_gps_quality",
+    "gga_num_sats",
+    "gga_hdop",
+    "gsa_vdop",
+    "gsa_fix_type",
 ]
 
 
@@ -88,9 +94,33 @@ def consolidate(df: pd.DataFrame) -> pd.DataFrame:
            [["timestamp_utc", "vtg_speed_knots", "vtg_speed_kmph"]]
            .drop_duplicates(subset="timestamp_utc", keep="first"))
 
+    # 3b. GGA-Diagnosefelder (Fix-Qualität, Anzahl Sats, HDOP)
+    gga_diag_cols = [c for c in ("gga_gps_quality", "gga_num_sats", "gga_hdop")
+                     if c in df.columns]
+    if gga_diag_cols:
+        gga_diag = (df[df["sentence_type"] == "GGA"]
+                    [["timestamp_utc"] + gga_diag_cols]
+                    .drop_duplicates(subset="timestamp_utc", keep="first"))
+    else:
+        gga_diag = None
+
+    # 3c. GSA-Diagnosefelder (VDOP, Fix-Typ)
+    gsa_diag_cols = [c for c in ("gsa_vdop", "gsa_fix_type")
+                     if c in df.columns]
+    if gsa_diag_cols and "GSA" in df["sentence_type"].values:
+        gsa_diag = (df[df["sentence_type"] == "GSA"]
+                    [["timestamp_utc"] + gsa_diag_cols]
+                    .drop_duplicates(subset="timestamp_utc", keep="first"))
+    else:
+        gsa_diag = None
+
     # Mergen — LEFT JOIN, weil GGA die Basis ist
     result = base.merge(rmc, on="timestamp_utc", how="left")
     result = result.merge(vtg, on="timestamp_utc", how="left")
+    if gga_diag is not None:
+        result = result.merge(gga_diag, on="timestamp_utc", how="left")
+    if gsa_diag is not None:
+        result = result.merge(gsa_diag, on="timestamp_utc", how="left")
 
     # 4. Vereinheitlichte Geschwindigkeitsspalten
     #    - speed_knots: bevorzugt aus RMC, Fallback VTG
@@ -110,9 +140,10 @@ def consolidate(df: pd.DataFrame) -> pd.DataFrame:
         # `limit_direction='both'` füllt auch am Anfang/Ende falls dort NaN steht
         result[col] = result[col].interpolate(method="linear", limit_direction="both")
 
-    # 6. Sortieren, nicht-Schema-B-Spalten weglassen, RangeIndex aufsetzen
+    # 6. Sortieren, nur vorhandene Schema-B-Spalten behalten, RangeIndex aufsetzen
     result = result.sort_values("timestamp_utc", kind="stable").reset_index(drop=True)
-    result = result[_SCHEMA_B_COLUMNS]
+    present = [c for c in _SCHEMA_B_COLUMNS if c in result.columns]
+    result = result[present]
 
     print(f"Konsolidiert: {len(result)} Zeilen (Schema B).")
     return result

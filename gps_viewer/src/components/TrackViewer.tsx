@@ -37,10 +37,22 @@ export function TrackViewer({ track, dem, activeIdx, onZoomChange }: Props) {
   const nQ = track.quantile_breaks.n_quantiles;
   const palette = useMemo(() => getDefaultPalette(nQ), [nQ]);
 
+  // Z-Exaggeration: Höhenunterschiede übertreiben damit sie sichtbar werden.
+  // altBase = minimale Höhe im Track; zScale = Übertreibungsfaktor.
+  const Z_SCALE = 15;
+  const altBase = useMemo(() => {
+    const alts = track.points.alt.filter((a): a is number => a !== null);
+    return alts.length > 0 ? Math.min(...alts) : 0;
+  }, [track]);
+  const exagAlt = useCallback(
+    (alt: number | null) => altBase + ((alt ?? altBase) - altBase) * Z_SCALE,
+    [altBase]
+  );
+
   // Vorhang-Segmente (nur neu berechnen wenn Track oder DEM wechselt)
   const curtainSegments = useMemo(
-    () => buildCurtainSegments(track, dem?.grid ?? null),
-    [track, dem]
+    () => buildCurtainSegments(track, dem?.grid ?? null, altBase, Z_SCALE),
+    [track, dem, altBase]
   );
 
   // Aktiver Punkt (Positions-Marker)
@@ -61,32 +73,32 @@ export function TrackViewer({ track, dem, activeIdx, onZoomChange }: Props) {
     // 1. Terrain-Mesh
     if (dem) result.push(makeTerrainLayer(dem));
 
-    // 2. Vorhang
-    if (track.meta.track_mode === "flight" || curtainSegments.length > 0) {
-      result.push(makeCurtainLayer(curtainSegments, nQ));
-    } else {
-      // Ground-Track: einfache farbige Linie
-      result.push(new PathLayer({
-        id: "track-path",
-        data: [{
-          path: track.points.lon.map((l, i) => [
-            l, track.points.lat[i], track.points.alt[i] ?? 0,
-          ]),
-          color: [100, 200, 255, 200],
-        }],
-        getPath: (d: any) => d.path,
-        getColor: (d: any) => d.color,
-        getWidth: 3,
-        widthUnits: "pixels",
-        pickable: false,
-      }));
-    }
+    // 2. Track-Linie — immer sichtbar (pixel-breit, unabhängig vom Zoom)
+    result.push(new PathLayer({
+      id: "track-path",
+      data: [{
+        path: track.points.lon.map((l, i) => [
+          l, track.points.lat[i], exagAlt(track.points.alt[i] ?? null),
+        ]),
+      }],
+      getPath: (d: any) => d.path,
+      getColor: [180, 180, 180, 120],
+      getWidth: 1,
+      widthUnits: "pixels",
+      pickable: false,
+    }));
+
+    // 3. Vorhang — farbcodierte Höhenfläche
+    //    Für Flüge: sichtbarer Vorhang (große Höhendifferenz).
+    //    Für Boden-Tracks: sehr dünn, wird bei niedrigem Pitch unsichtbar —
+    //    ist aber korrekt und wird bei steilem Pitch (60°+) sichtbar.
+    result.push(makeCurtainLayer(curtainSegments, nQ));
 
     // 3. Aktiver Punkt
     result.push(new ScatterplotLayer({
       id: "active-point",
       data: activePt,
-      getPosition: (d: any) => [d.lon, d.lat, d.alt],
+      getPosition: (d: any) => [d.lon, d.lat, exagAlt(d.alt)],
       getRadius: 6,
       radiusUnits: "pixels",
       getFillColor: (d: any) => quantileColor(d.qIdx, palette),

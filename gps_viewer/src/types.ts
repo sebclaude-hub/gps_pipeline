@@ -38,6 +38,11 @@ export interface TrackPoints {
   distance_m: (number | null)[];
   timestamp_ms: number[];
   speed_q_idx: number[];
+  // Diagnosefelder (optional — null wenn Empfänger sie nicht liefert)
+  fix_quality?: (number | null)[];
+  num_sats?: (number | null)[];
+  hdop?: (number | null)[];
+  vdop?: (number | null)[];
 }
 
 export interface TrackData {

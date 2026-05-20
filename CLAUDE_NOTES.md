@@ -1,6 +1,6 @@
 # Arbeitsnotizen für Claude — GPS-Viewer-Projekt
 
-**Zuletzt aktualisiert:** 2026-05-19
+**Zuletzt aktualisiert:** 2026-05-20
 **Aktueller Branch:** master
 **GitHub:** https://github.com/sebclaude-hub/gps_pipeline
 
@@ -39,6 +39,11 @@
 - **`2>&1` auf native Programme**: In PS 5.1 wraps stderr in ErrorRecord-Objekte
   und setzt `$?` auf false, auch wenn Exit-Code 0. Besser stderr weglassen oder
   mit `*>&1` zusammenführen.
+- **Unicode in print()-Ausgaben**: Windows-Konsole läuft mit cp1252 — Sonderzeichen
+  wie `→`, `⚠`, `×` crashen mit UnicodeEncodeError. Lösung: `$env:PYTHONUTF8 = "1"`
+  vor jedem Python-Aufruf setzen, **oder** Sonderzeichen in allen print()-Aufrufen
+  durch ASCII-Äquivalente ersetzen (`->`, `!`, `x`). Zweite Option robuster.
+  Bereits gefixt in: `filter.py`, `api.py`, `terrain/dem.py`.
 
 ### deck.gl (React-Bibliothek)
 - **`@deck.gl/react` nicht gefunden** obwohl in package.json eingetragen: Das Paket
@@ -70,6 +75,7 @@ Kernfeatures:
 - **LOD-Terrain**: 3 vorberechnete Auflösungsstufen (200/50/10 m/px), React
   wählt je nach Zoom die passende — kein Backend nötig.
 - **Skyplot**: SVG-Polarplot synchronisiert mit Track-Slider.
+- **InfoPanel**: Punkt-Info (Höhe, Speed, Fix, HDOP, VDOP, Sats) synchron mit Slider.
 - **Kein laufendes Python** nötig während der Anzeige — `python view.py` startet
   einmalig einen simplen HTTP-Server.
 
@@ -80,8 +86,10 @@ Kernfeatures:
 ### Schritt 1 ✅ — Python-Export-Modul
 - `gps_pipeline/export/__init__.py`
 - `gps_pipeline/export/json_export.py` — Track → `track.json`, GSV → `satellites.json`
-- `gps_pipeline/export/dem_lod.py` — DEM → 3 LOD-Stufen als JSON
+- `gps_pipeline/export/dem_lod.py` — DEM → 3 LOD-Stufen als JSON (**neu erstellt
+  2026-05-20**, war vorher referenziert aber fehlte im Repo)
 - `gps_pipeline/api.py` — `export_for_viewer()` hinzugefügt
+- `gps_pipeline/__init__.py` — `export_for_viewer` war nicht exportiert, **nachgetragen**
 - `view.py` — HTTP-Server, öffnet Browser automatisch
 
 ### Schritt 2 ✅ — React-App Skeleton + Vorhang-Layer
@@ -98,23 +106,60 @@ Kernfeatures:
 - `src/utils/` — quantile.ts, demMesh.ts, formatters.ts
 - `dist/` ist committed (kein Node-Build nötig für Endnutzer)
 
+### Schritt 3 ✅ (weitgehend) — Curtain-Layer + End-to-End-Test (Session 2026-05-20)
+- **`view.py`**: Manifest-Injektion implementiert — `window.__GPS_MANIFEST__` wird
+  als inline `<script>` in `index.html` injiziert. Ohne das lädt React keine Terrain-Daten.
+- **Logic-Bug gefixt** in `TrackViewer.tsx`: Bedingung war
+  `track_mode === "flight" || curtainSegments.length > 0` — letzteres ist immer true.
+  Korrigiert auf `track_mode === "flight"`.
+- **Z-Exaggeration** (Faktor 15) in `TrackViewer.tsx` und `curtainLayer.ts`:
+  `exagAlt = altBase + (alt - altBase) * Z_SCALE`. Betrifft PathLayer (Boden) und
+  Vorhang-Segmente (Flug) gleichermaßen — konsistent.
+- **InfoPanel** (`src/components/InfoPanel.tsx`, neu): zeigt Zeit, Position, Höhe,
+  Speed, Fix-Typ, Satellitenzahl, HDOP, VDOP — synchron mit Slider-Index.
+- **HDOP/VDOP/Fix in Schema C**: `consolidate.py` mergt jetzt zusätzlich
+  `gga_gps_quality`, `gga_num_sats`, `gga_hdop` aus GGA-Zeilen und
+  `gsa_vdop`, `gsa_fix_type` aus GSA-Zeilen (per LEFT JOIN auf timestamp_utc).
+  Felder sind optional (Guard gegen fehlende Spalten eingebaut).
+- **`json_export.py`**: neue Felder in `points`-Objekt von track.json:
+  `fix_quality`, `num_sats`, `hdop`, `vdop`. `_safe_float_list` robuster gegen
+  `pandas.NA` (NAType) — vorher TypeError.
+- **End-to-End getestet** mit `data/2026-05-02_16-54-51_rx_log.txt`:
+  96.656 Nachrichten → 24.138 konsolidierte Punkte, 139 km, Skyplot funktioniert,
+  InfoPanel zeigt Werte, Satellitengröße = SNR (kein Zufall!).
+- **Curtain-Layer**: Boden jetzt auf 0 m MSL wenn kein Terrain vorhanden (statt
+  `altBase`). Curtain wird für **alle** Track-Modi gerendert (nicht mehr flight-only).
+  PathLayer bleibt als sichtbare Rückfallebene (1px grau) immer erhalten.
+- **Marker-Bug behoben**: `ScatterplotLayer` nutzt jetzt `exagAlt(d.alt)`.
+- **ACHTUNG**: Track wird trotz Flug als `"ground"` klassifiziert (→ Bekannte Bugs).
+
 ---
 
-## Was noch fehlt (Schritte 3–8)
+## Was noch fehlt
 
-### Schritt 3 — Curtain-Layer verfeinern
-- [ ] `dem_lod.py` fehlt noch im Git (war noch nicht committed — prüfen!)
-- [ ] Testen mit echten Track-Daten (NMEA-File)
-- [ ] Ground-Track: `PathLayer` statt Vorhang sicherstellen
-- [ ] Vorhang-Transparenz und Rückseite korrekt rendern (deck.gl `side: 'both'`?)
+### Bekannte Bugs
+
+- [ ] **`track_mode`-Erkennung falsch** — kritischer Bug! `_detect_track_mode()` in
+  `gps_pipeline/export/json_export.py` gibt immer `"ground"` zurück wenn keine
+  Terrain-Daten vorhanden sind, weil sie nur `track_above_terrain` prüft (das nur
+  beim DEM-Export befüllt wird). Ein Flug-Track ohne DEM wird also als Boden-Track
+  klassifiziert. **Fix:** Fallback-Heuristik einbauen — z.B. wenn
+  `speed_kmh.median() > 80` oder `altitude_corrected.max() - .min() > 200` →
+  `"flight"`. Betroffen: `json_export.py` Zeile mit `_detect_track_mode`.
+
+- [x] ~~**Aktiver-Punkt-Marker** lag auf nicht-exaggerierter Höhe~~ — **behoben**:
+  `getPosition` nutzt jetzt `exagAlt(d.alt)`.
 
 ### Schritt 4 — Terrain-Integration testen
 - [ ] `export_for_viewer()` End-to-End mit echtem DEM-GeoTIFF testen
 - [ ] LOD-Wechsel visuell verifizieren (Anti-Flicker)
 - [ ] DEM-Mesh Beleuchtung / Shading verbessern (evtl. Höhen-Farbkodierung)
+- [ ] Z-Exaggeration und Terrain konsistent: wenn Terrain geladen, muss auch
+  terrain_elev in `buildCurtainSegments` exaggeriert werden (bereits implementiert,
+  aber ohne echtes DEM noch nicht getestet)
 
 ### Schritt 5 — Skyplot vollständig
-- [ ] Skyplot testen mit echten GSV-Daten
+- [x] Skyplot testen mit echten GSV-Daten ✅ — funktioniert, Größe = SNR
 - [ ] Age-Indikator ("GSV-Burst vor X Sekunden") anzeigen
 
 ### Schritt 6 — LOD-Automat kalibrieren
@@ -123,15 +168,36 @@ Kernfeatures:
 
 ### Schritt 7 — CLI-Integration
 - [ ] `__main__.py` um `--export`-Flag erweitern
-- [ ] `view.py` Manifest-Injektion als inline `<script>` in index.html
-  (aktuell: `window.__GPS_MANIFEST__` ist im Code referenziert aber noch
-  nicht befüllt — view.py muss das beim Ausliefern von index.html einfügen)
 - [ ] End-to-End-Test: `python -m gps_pipeline --export output/ && python view.py`
 
 ### Schritt 8 — Polish
-- [ ] InfoPanel: Hover-Tooltip mit Speed/Höhe/Zeit im 3D-View
 - [ ] Touch-Gesten (Pinch-Zoom)
 - [ ] Vergleichs-Ansicht (zwei Tracks gleichzeitig)
+- [ ] Hover-Tooltip direkt im 3D-View (zusätzlich zum InfoPanel)
+
+---
+
+## Workflow zum Testen
+
+```powershell
+# Im Projektordner, immer mit UTF8:
+$env:PYTHONUTF8 = "1"
+
+# 1. Track exportieren
+python -c "
+from pathlib import Path
+from gps_pipeline import process_nmea, export_for_viewer
+df_raw, df_c = process_nmea(Path('data/2026-05-02_16-54-51_rx_log.txt'))
+export_for_viewer(df_c, Path('output'), name_prefix='test', df_raw=df_raw)
+"
+
+# 2. Viewer öffnen (Server läuft bis Strg+C)
+python view.py output
+
+# Browser: http://localhost:8765
+# Nach Änderungen am Python-Code: Schritt 1 wiederholen, dann F5 im Browser.
+# Nach Änderungen am React-Code: npm run build in gps_viewer/, dann F5.
+```
 
 ---
 
@@ -142,51 +208,26 @@ Kernfeatures:
 - `MapView` (nicht OrbitView!) — OrbitView erwartet kartesische `target`-Koordinaten
 - `SolidPolygonLayer` mit `extruded: false` und direkten 3D-Lon/Lat/Alt-Koordinaten
 - `SimpleMeshLayer` für Terrain (positions/indices aus `gridToMesh()`)
-
-### Kritische offene Stelle: `window.__GPS_MANIFEST__`
-`App.tsx` liest `window.__GPS_MANIFEST__?.dem_lods` und `dem_prefix`.
-Dieses Objekt muss von `view.py` als inline `<script>` in die `index.html`
-injiziert werden, wenn die Datei ausgeliefert wird. Aktuell ist das NOCH NICHT
-implementiert — `view.py` liefert `index.html` statisch aus, ohne Injektion.
-
-**Fix in `view.py` → `_serve_file`:**
-```python
-if file_path.name == "index.html":
-    html = file_path.read_text(encoding="utf-8")
-    manifest = json.loads((self.output_dir / "manifest.json").read_text())
-    script = f'<script>window.__GPS_MANIFEST__={json.dumps(manifest)};</script>'
-    html = html.replace("</head>", script + "</head>")
-    data = html.encode("utf-8")
-    # ... rest wie bisher
-```
+- Z-Exaggeration: `Z_SCALE = 15` in `TrackViewer.tsx`, Konstante oben in der Datei
+  — bei Bedarf einfach anpassen
 
 ### JSON-Schema (track.json)
 Spaltenorientiert: `points.lat[]`, `points.lon[]`, `points.alt[]`, etc.
 Quantil-Index vorberechnet: `points.speed_q_idx[]` (int8, 0..n-1, -1=NaN).
 Timestamps als Unix-ms: `points.timestamp_ms[]`.
 `meta.track_mode`: `"flight"` wenn median(track_above_terrain) > 30 m.
+Neu: `points.fix_quality[]`, `points.num_sats[]`, `points.hdop[]`, `points.vdop[]`.
 
 ### LOD-Dateinamen
-`{name_prefix}_dem_lod0.json` (fein), `_lod1.json` (mittel), `_lod2.json` (grob).
+`{name_prefix}_dem_lod0.json` (fein, ~10 m/px), `_lod1.json` (mittel, ~50 m/px),
+`_lod2.json` (grob, ~200 m/px).
 Der `dem_prefix` steht in `manifest.json` und wird via `window.__GPS_MANIFEST__`
-an die React-App übergeben.
+an die React-App übergeben. Die Injektion passiert in `view.py → _serve_file`.
 
----
-
-## Workflow zum Testen (sobald Schritt 7 fertig)
-
-```bash
-# 1. Track exportieren
-python -c "
-from pathlib import Path
-from gps_pipeline import process_nmea, export_for_viewer
-df_raw, df_c = process_nmea(Path('data/nmea_testlog.txt'))
-export_for_viewer(df_c, Path('output'), name_prefix='test', df_raw=df_raw)
-"
-
-# 2. Viewer öffnen
-python view.py output/
-```
+### Satelliten-Skyplot
+- Punktgröße = SNR (Signal-Rausch-Verhältnis), Formel: `r = clamp(snr/6, 3, 10)`
+- Farbe nach Konstellation: GP=hellblau, GL=grün, GA=orange, GB=rosa
+- Synchronisation: `burst_idx_by_track[talker][track_idx]` → Index in `bursts_by_talker`
 
 ---
 

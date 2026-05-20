@@ -42,10 +42,11 @@ def _safe_list(series: pd.Series, dtype=float) -> list:
 def _safe_float_list(series: pd.Series, decimals: int = 4) -> list:
     result = []
     for v in series:
-        if v is None or (isinstance(v, float) and math.isnan(v)):
+        try:
+            fv = float(v)
+            result.append(None if math.isnan(fv) else round(fv, decimals))
+        except (TypeError, ValueError):
             result.append(None)
-        else:
-            result.append(round(float(v), decimals))
     return result
 
 
@@ -129,6 +130,10 @@ def export_track_json(
     dist = df_c.get("distance_m", pd.Series(np.nan, index=df_c.index))
     terrain = df_c.get("terrain_elevation", pd.Series(np.nan, index=df_c.index))
     above = df_c.get("track_above_terrain", pd.Series(np.nan, index=df_c.index))
+    fix_quality = df_c.get("gga_gps_quality", pd.Series(np.nan, index=df_c.index))
+    num_sats = df_c.get("gga_num_sats", pd.Series(np.nan, index=df_c.index))
+    hdop = df_c.get("gga_hdop", pd.Series(np.nan, index=df_c.index))
+    vdop = df_c.get("gsa_vdop", pd.Series(np.nan, index=df_c.index))
 
     # Timestamps → Unix ms (int)
     ts = pd.to_datetime(df_c["timestamp_utc"], utc=True)
@@ -182,6 +187,10 @@ def export_track_json(
             "distance_m":   _safe_float_list(dist, 1),
             "timestamp_ms": ts_ms,
             "speed_q_idx":  q_idx.tolist(),
+            "fix_quality":  _safe_list(fix_quality, dtype=int),
+            "num_sats":     _safe_list(num_sats, dtype=int),
+            "hdop":         _safe_float_list(hdop, 1),
+            "vdop":         _safe_float_list(vdop, 1),
         },
     }
 

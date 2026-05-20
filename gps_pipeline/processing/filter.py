@@ -108,5 +108,5 @@ def filter_invalid(df: pd.DataFrame) -> pd.DataFrame:
     df = _drop_invalid_gsa(df)
 
     df = df.reset_index(drop=True)
-    print(f"Filter fertig: {n_before} → {len(df)} Zeilen ({n_before - len(df)} entfernt).\n")
+    print(f"Filter fertig: {n_before} -> {len(df)} Zeilen ({n_before - len(df)} entfernt).\n")
     return df

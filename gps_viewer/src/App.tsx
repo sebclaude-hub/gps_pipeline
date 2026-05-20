@@ -6,6 +6,7 @@ import { TrackViewer } from "./components/TrackViewer";
 import { SkyPlot } from "./components/SkyPlot";
 import { TrackSlider } from "./components/TrackSlider";
 import { ColorLegend } from "./components/ColorLegend";
+import { InfoPanel } from "./components/InfoPanel";
 import { formatDuration, formatDistance } from "./utils/formatters";
 
 // Manifest-Daten werden von view.py als inline-Script injiziert
@@ -78,19 +79,22 @@ export default function App() {
           <ColorLegend breaks={track.quantile_breaks} />
         </div>
 
-        {hasSat && (
-          <div style={skyplotPanelStyle}>
-            <div style={{ color: "#888", fontSize: 11, marginBottom: 6 }}>
-              Satellitenkonstellation
-            </div>
-            <SkyPlot satData={satData} trackIdx={activeIdx} />
-            {satData && (
-              <div style={{ color: "#556", fontSize: 10, marginTop: 4 }}>
-                {satData.talkers.join(" / ")}
+        <div style={sidePanelStyle}>
+          {hasSat && (
+            <>
+              <div style={{ color: "#888", fontSize: 11, marginBottom: 6 }}>
+                Satellitenkonstellation
               </div>
-            )}
-          </div>
-        )}
+              <SkyPlot satData={satData} trackIdx={activeIdx} />
+              {satData && (
+                <div style={{ color: "#556", fontSize: 10, marginTop: 4 }}>
+                  {satData.talkers.join(" / ")}
+                </div>
+              )}
+            </>
+          )}
+          <InfoPanel track={track} activeIdx={activeIdx} />
+        </div>
       </div>
 
       <TrackSlider
@@ -116,10 +120,11 @@ const headerStyle: React.CSSProperties = {
 const contentStyle: React.CSSProperties = {
   display: "flex", flex: 1, minHeight: 0, overflow: "hidden",
 };
-const skyplotPanelStyle: React.CSSProperties = {
+const sidePanelStyle: React.CSSProperties = {
   width: 300, flexShrink: 0, background: "#111",
   borderLeft: "1px solid #2a2a2a", padding: 16,
   display: "flex", flexDirection: "column", alignItems: "center",
+  overflowY: "auto",
 };
 const centerStyle: React.CSSProperties = {
   display: "flex", width: "100vw", height: "100vh",
