@@ -6,9 +6,11 @@ import { TrackViewer } from "./components/TrackViewer";
 import { SkyPlot } from "./components/SkyPlot";
 import { TrackSlider } from "./components/TrackSlider";
 import { ColorLegend } from "./components/ColorLegend";
-import { ColorModeToggle } from "./components/ColorModeToggle";
+import { ToggleSwitch } from "./components/ToggleSwitch";
 import { InfoPanel } from "./components/InfoPanel";
 import type { ColorMode } from "./types";
+
+type CurtainMode = "on" | "off";
 import { formatDuration, formatDistance } from "./utils/formatters";
 
 // Manifest-Daten werden von view.py als inline-Script injiziert
@@ -29,6 +31,7 @@ export default function App() {
   const [activeIdx, setActiveIdx] = useState(0);
   const [zoom, setZoom] = useState(10);
   const [colorMode, setColorMode] = useState<ColorMode>("speed");
+  const [curtainMode, setCurtainMode] = useState<CurtainMode>("on");
 
   const hasSat = track?.meta.has_satellites ?? false;
   const { data: satData } = useSatelliteData(hasSat);
@@ -78,9 +81,25 @@ export default function App() {
             dem={demLod}
             activeIdx={activeIdx}
             colorMode={colorMode}
+            showCurtain={curtainMode === "on"}
             onZoomChange={handleZoom}
           />
-          <ColorModeToggle value={colorMode} onChange={setColorMode} />
+          <div style={togglesStyle}>
+            <ToggleSwitch<ColorMode>
+              value={colorMode}
+              options={["speed", "altitude"]}
+              labels={["km/h", "Höhe"]}
+              onChange={setColorMode}
+              title="Farbgebung umschalten"
+            />
+            <ToggleSwitch<CurtainMode>
+              value={curtainMode}
+              options={["on", "off"]}
+              labels={["Vorhang", "aus"]}
+              onChange={setCurtainMode}
+              title="Vorhang ein- oder ausblenden"
+            />
+          </div>
           <ColorLegend breaks={track.quantile_breaks} colorMode={colorMode} />
         </div>
 
@@ -130,6 +149,11 @@ const sidePanelStyle: React.CSSProperties = {
   borderLeft: "1px solid #2a2a2a", padding: 16,
   display: "flex", flexDirection: "column", alignItems: "center",
   overflowY: "auto",
+};
+const togglesStyle: React.CSSProperties = {
+  position: "absolute", top: 12, right: 12,
+  display: "flex", flexDirection: "column", gap: 8,
+  zIndex: 10,
 };
 const centerStyle: React.CSSProperties = {
   display: "flex", width: "100vw", height: "100vh",

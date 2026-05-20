@@ -1,16 +1,19 @@
-import type { ColorMode } from "../types";
-
-interface Props {
-  value: ColorMode;
-  onChange: (mode: ColorMode) => void;
+interface Props<T extends string> {
+  value: T;
+  options: [T, T];
+  labels: [string, string];
+  onChange: (v: T) => void;
+  title?: string;
 }
 
 /**
- * Moderner Schiebe-Switch mit zwei Labels.
- * Der Knubbel gleitet zwischen "km/h" und "Höhe".
+ * Generischer Pill-Switch mit zwei Labels. Der Knubbel gleitet zwischen
+ * den Optionen, das aktive Label ist weiß, das inaktive grau.
  */
-export function ColorModeToggle({ value, onChange }: Props) {
-  const isSpeed = value === "speed";
+export function ToggleSwitch<T extends string>({
+  value, options, labels, onChange, title,
+}: Props<T>) {
+  const isLeft = value === options[0];
 
   const W = 140;
   const H = 28;
@@ -18,11 +21,8 @@ export function ColorModeToggle({ value, onChange }: Props) {
 
   return (
     <div
-      onClick={() => onChange(isSpeed ? "altitude" : "speed")}
+      onClick={() => onChange(isLeft ? options[1] : options[0])}
       style={{
-        position: "absolute",
-        top: 12,
-        right: 12,
         width: W,
         height: H,
         background: "rgba(0,0,0,0.65)",
@@ -31,17 +31,17 @@ export function ColorModeToggle({ value, onChange }: Props) {
         cursor: "pointer",
         userSelect: "none",
         overflow: "hidden",
+        position: "relative",
       }}
       role="switch"
-      aria-checked={!isSpeed}
-      title="Farbgebung umschalten"
+      aria-checked={!isLeft}
+      title={title}
     >
-      {/* Knubbel */}
       <div
         style={{
           position: "absolute",
           top: 2,
-          left: isSpeed ? 2 : W - THUMB_W - 2,
+          left: isLeft ? 2 : W - THUMB_W - 2,
           width: THUMB_W,
           height: H - 4,
           background: "linear-gradient(180deg, #5a5a8f, #3d3d6b)",
@@ -50,7 +50,6 @@ export function ColorModeToggle({ value, onChange }: Props) {
           transition: "left 180ms cubic-bezier(.4,.0,.2,1)",
         }}
       />
-      {/* Labels */}
       <div
         style={{
           position: "absolute",
@@ -63,11 +62,11 @@ export function ColorModeToggle({ value, onChange }: Props) {
           pointerEvents: "none",
         }}
       >
-        <span style={{ color: isSpeed ? "#fff" : "#bbb", flex: 1, textAlign: "center" }}>
-          km/h
+        <span style={{ color: isLeft ? "#fff" : "#bbb", flex: 1, textAlign: "center" }}>
+          {labels[0]}
         </span>
-        <span style={{ color: !isSpeed ? "#fff" : "#bbb", flex: 1, textAlign: "center" }}>
-          Höhe
+        <span style={{ color: !isLeft ? "#fff" : "#bbb", flex: 1, textAlign: "center" }}>
+          {labels[1]}
         </span>
       </div>
     </div>

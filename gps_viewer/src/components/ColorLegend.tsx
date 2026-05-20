@@ -77,7 +77,7 @@ export function ColorLegend({ breaks, colorMode }: Props) {
 
   return (
     <div style={{
-      position: "absolute", top: 56, right: 12,
+      position: "absolute", top: 88, right: 12,
       background: "rgba(0,0,0,0.65)",
       borderRadius: 6, padding: "10px 12px",
       color: "#ddd", fontSize: 11,

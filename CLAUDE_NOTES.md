@@ -158,11 +158,16 @@ Kernfeatures:
 
 ### Bekannte Bugs
 
-- [ ] **Curtain unsichtbar** — auch im Color-Mode noch nicht sichtbar. Vermutung:
-  SolidPolygonLayer mit `extruded:false` + 3D-Polygon liegt zwar in einer
-  vertikalen Ebene, wird aber evtl. von deck.gl nicht korrekt trianguliert.
-  Nächster Schritt: untersuchen ob `extruded:true` mit getElevation/Polygon-Base
-  oder ein TriangleLayer-/PolygonsLayer-Ansatz besser passt.
+- [x] ~~**Curtain unsichtbar**~~ — **behoben 2026-05-20 (Session 3, Teil 2)**:
+  SolidPolygonLayer trianguliert das Polygon in 2D (XY) und ignoriert Z. Ein
+  vertikales Quad mit identischem (lon,lat) für top und bot kollabiert zu
+  Null-Fläche → 0 Dreiecke → unsichtbar. **Fix**: `extruded: true` mit dünnem
+  perpendikularem XY-Footprint (eps ≈ 1e-6 grad ~ 11 cm) und `getElevation`
+  pro Segment. Bodenhöhe via Z=base im Footprint, Höhe = top - base.
+  Limitation: konstante Höhe pro Segment (Treppen-Stufen bei großen Höhen-
+  sprüngen). Bei ~5 m Abstand zwischen GPS-Punkten visuell unauffällig.
+  Zusätzlich: Curtain via Pill-Switch ein-/ausblendbar (`ToggleSwitch.tsx`,
+  generische Komponente, ersetzt den vorherigen `ColorModeToggle`).
 
 
 - [x] ~~**`track_mode`-Erkennung falsch**~~ — **angepasst 2026-05-20 (Session 3)**:

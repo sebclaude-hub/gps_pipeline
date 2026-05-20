@@ -16,6 +16,7 @@ interface Props {
   dem: DemLod | null;
   activeIdx: number;
   colorMode: ColorMode;
+  showCurtain: boolean;
   onZoomChange?: (zoom: number) => void;
 }
 
@@ -32,7 +33,7 @@ function buildInitialViewState(track: TrackData): ViewState {
 
 const FALLBACK: Rgba = [150, 150, 150, 180];
 
-export function TrackViewer({ track, dem, activeIdx, colorMode, onZoomChange }: Props) {
+export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, onZoomChange }: Props) {
   const [viewState, setViewState] = useState<ViewState>(
     () => buildInitialViewState(track)
   );
@@ -99,7 +100,7 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, onZoomChange }: 
 
     if (dem) result.push(makeTerrainLayer(dem));
 
-    result.push(makeCurtainLayer(curtainSegments, colorMode));
+    if (showCurtain) result.push(makeCurtainLayer(curtainSegments, colorMode));
 
     result.push(new PathLayer({
       id: "track-path",
@@ -132,7 +133,7 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, onZoomChange }: 
     }));
 
     return result;
-  }, [dem, curtainSegments, pathSegments, activePt, colorMode, exagAlt, activeIdx]);
+  }, [dem, curtainSegments, pathSegments, activePt, colorMode, showCurtain, exagAlt, activeIdx]);
 
   const handleViewStateChange = useCallback(({ viewState: vs }: any) => {
     setViewState(vs);
