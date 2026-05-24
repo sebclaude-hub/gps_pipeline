@@ -5,6 +5,9 @@ import { plasmaGradientCss } from "../utils/colorMap";
 interface Props {
   breaks: QuantileBreaks;
   colorMode: ColorMode;
+  /** Pixel-Abstand vom oberen Rand. Wird von App.tsx je nach Anzahl der
+   *  sichtbaren Toggles gesetzt, damit die Legende nicht ueberlappt. */
+  topOffset?: number;
 }
 
 /**
@@ -62,7 +65,7 @@ function distributeTicks(breaks: number[], minGap: number): number[] {
   return positions.map(p => p / total);
 }
 
-export function ColorLegend({ breaks, colorMode }: Props) {
+export function ColorLegend({ breaks, colorMode, topOffset = 124 }: Props) {
   const isSpeed = colorMode === "speed";
   const values = isSpeed ? breaks.speed_kmh : breaks.altitude_m;
   const unit = isSpeed ? "km/h" : "m";
@@ -77,7 +80,7 @@ export function ColorLegend({ breaks, colorMode }: Props) {
 
   return (
     <div style={{
-      position: "absolute", top: 124, right: 12,
+      position: "absolute", top: topOffset, right: 12,
       background: "rgba(0,0,0,0.65)",
       borderRadius: 6, padding: "10px 12px",
       color: "#ddd", fontSize: 11,

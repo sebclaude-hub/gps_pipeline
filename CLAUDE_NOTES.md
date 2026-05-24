@@ -1,6 +1,6 @@
 # Arbeitsnotizen für Claude — GPS-Viewer-Projekt
 
-**Zuletzt aktualisiert:** 2026-05-20
+**Zuletzt aktualisiert:** 2026-05-24
 **Aktueller Branch:** master
 **GitHub:** https://github.com/sebclaude-hub/gps_pipeline
 
@@ -125,6 +125,50 @@ Kernfeatures:
 - **`ColorModeToggle.tsx`** (neu): Pill-Switch, Knubbel gleitet mit 180ms
   cubic-bezier-Transition zwischen "km/h" und "Höhe".
 
+### Schritt 5 ✅ — Karten-Overlays, Trimming, Synthetic-Tracks, klickbarer Track (Session 2026-05-24)
+
+Vier Features in einer Opus-4.7-Session implementiert. Details siehe
+`CHANGES.md` Sektion "Schritt 5".
+
+**5a -- Chart-Overlays (PNG drapt auf DEM):**
+- Backend: `gps_pipeline/parsing/chart.py`, `gps_pipeline/export/chart_export.py`
+- Frontend: `utils/chartMesh.ts`, `layers/chartLayer.ts`,
+  `api/loadCharts.ts`, `hooks/useCharts.ts`
+- Format: `data/<name>.png` + `data/<name>.txt` mit 4 Eckkoordinaten
+  (`lon lat` pro Zeile, Reihenfolge TL/TR/BL/BR). Optional `elevation_m: 220`.
+- Manifest: zusätzlicher `charts: "charts.json" | null`-Eintrag.
+- Toggle erscheint nur wenn Overlays geladen sind; mehrere PNGs gleichzeitig
+  möglich (z.B. Anflug + Abflug).
+- Wichtig: Z-Exaggeration (altBase, zScale) MUSS in `buildChartMesh()`
+  identisch zu Terrain/Track sein, sonst schwebt die Karte weg.
+
+**5b -- RangeSelector (Trimming + Multi-Cut):**
+- Frontend: `hooks/useRangeSelection.ts`, `components/RangeSelector.tsx`
+- Cut-Ranges als rote Balken mit zwei Drag-Handles über einem eigenen
+  Track (über dem normalen Slider). "+ Cut" / "Reset" / "Export"-Buttons.
+- Export lädt `ranges.json` herunter; das Python-CLI nutzt sie.
+- Backend: `gps_pipeline/processing/trim.py::trim_track()` + `load_cut_ranges()`.
+
+**5c -- Synthetic-Tracks (Zeitachse stauchen):**
+- Backend: `gps_pipeline/processing/synthetic.py`
+- Pro Cut: erwartete Brückenzeit = geodetic(dist_vor, dist_nach) / avg_kmh
+  der `interp_n` Nachbarpunkte. Nachfolgende Timestamps werden um die
+  Differenz vorgeschoben.
+- Spalte `is_synthetic` markiert Zeilen mit verschobenem Timestamp.
+- `save_synthetic()` erzwingt `_synthetic.feather`-Suffix + Sidecar-
+  `.meta.json` mit Warnung "GSV-Daten nicht gültig".
+
+**5d -- Klickbarer Track:**
+- Unsichtbarer pickbarer `ScatterplotLayer` über dem Track in
+  `TrackViewer.tsx`. `onHover` setzt `activeIdx`. Synchronisiert
+  InfoPanel/Skyplot/Marker ohne Slider-Bedienung.
+
+**5e -- Hover-Tooltip:**
+- `getTooltip` in TrackViewer mit Filter auf `layer.id === "track-pick"`.
+- `InfoModeButtons` (Panel/Tooltip/Beide), Default "Beide".
+- Im reinen Tooltip-Modus + ohne Satellitendaten wird das 300px Side-Panel
+  komplett ausgeblendet (mehr Bildbreite fuer den Track).
+
 ### Schritt 3 ✅ (weitgehend) — Curtain-Layer + End-to-End-Test (Session 2026-05-20)
 - **`view.py`**: Manifest-Injektion implementiert — `window.__GPS_MANIFEST__` wird
   als inline `<script>` in `index.html` injiziert. Ohne das lädt React keine Terrain-Daten.
@@ -192,9 +236,11 @@ Kernfeatures:
 - [x] Skyplot testen mit echten GSV-Daten ✅ — funktioniert, Größe = SNR
 - [ ] Age-Indikator ("GSV-Burst vor X Sekunden") anzeigen
 
-### Schritt 6 — LOD-Automat kalibrieren
-- [ ] Zoom-Schwellen (8 / 11) an echten Tracks kalibrieren
-- [ ] Prefetch von LOD 1 wenn Zoom 7 erreicht wird
+### Schritt 6 — ~~LOD-Automat kalibrieren~~ (erledigt 2026-05-24)
+Punkt stammt aus der Plotly-HTML-Aera, wo LOD-Wechsel teuer war.
+Im React-Viewer mit ``useDemLod`` + ``useTransition`` laeuft das Streaming
+unauffaellig; die Default-Schwellen 8/11 reichen fuer alle bisher
+getesteten Tracks. Bei Bedarf spaeter neu aufgreifen.
 
 ### Schritt 7 — CLI-Integration
 - [ ] `__main__.py` um `--export`-Flag erweitern
@@ -203,7 +249,7 @@ Kernfeatures:
 ### Schritt 8 — Polish
 - [ ] Touch-Gesten (Pinch-Zoom)
 - [ ] Vergleichs-Ansicht (zwei Tracks gleichzeitig)
-- [ ] Hover-Tooltip direkt im 3D-View (zusätzlich zum InfoPanel)
+- [x] ~~Hover-Tooltip direkt im 3D-View~~ — erledigt 2026-05-24 (Schritt 5e)
 
 ---
 

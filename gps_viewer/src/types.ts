@@ -102,6 +102,8 @@ export interface Manifest {
   satellites: string | null;
   dem_lods: number[];
   dem_prefix: string;
+  /** Pfad zu charts.json oder null, wenn keine Karten-Overlays exportiert wurden. */
+  charts?: string | null;
   viewer_version: string;
 }
 

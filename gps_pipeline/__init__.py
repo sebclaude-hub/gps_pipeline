@@ -11,6 +11,11 @@ from .api import (
     render_comparison,
     export_for_viewer,
 )
+from .parsing.chart import ChartOverlay, find_charts
+from .processing.trim import CutRange, trim_track, load_cut_ranges
+from .processing.synthetic import (
+    create_synthetic_track, save_synthetic, SyntheticMeta,
+)
 
 __all__ = [
     "process_nmea",
@@ -19,4 +24,12 @@ __all__ = [
     "render_visualizations",
     "render_comparison",
     "export_for_viewer",
+    "ChartOverlay",
+    "find_charts",
+    "CutRange",
+    "trim_track",
+    "load_cut_ranges",
+    "create_synthetic_track",
+    "save_synthetic",
+    "SyntheticMeta",
 ]

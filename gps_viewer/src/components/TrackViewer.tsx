@@ -9,7 +9,10 @@ import { ScatterplotLayer, PathLayer } from "@deck.gl/layers";
 import type { TrackData, DemLod, ViewState, ColorMode } from "../types";
 import { buildCurtainSegments, makeCurtainLayer } from "../layers/curtainLayer";
 import { makeTerrainLayer } from "../layers/terrainLayer";
+import { makeChartLayer } from "../layers/chartLayer";
+import type { LoadedChart } from "../hooks/useCharts";
 import { computeRankPositions, plasmaColor, type Rgba } from "../utils/colorMap";
+import { formatSpeed, formatAltitude, formatTimestamp } from "../utils/formatters";
 
 interface Props {
   track: TrackData;
@@ -17,8 +20,18 @@ interface Props {
   activeIdx: number;
   colorMode: ColorMode;
   showCurtain: boolean;
+  /** Karten-Overlays, die auf das DEM gedrapt werden. Leeres Array = aus. */
+  charts: LoadedChart[];
+  /** Sichtbarkeit aller Charts (UI-Toggle). */
+  showCharts: boolean;
   zScale: number;
   onZoomChange?: (zoom: number) => void;
+  /** Wird aufgerufen, wenn der Nutzer im Track-Plot einen Punkt anklickt
+   *  oder mit dem Mauszeiger ueberfaehrt. Setzt typischerweise activeIdx. */
+  onPointPick?: (idx: number) => void;
+  /** Wenn true, erscheint beim Hover ein Floating-Tooltip am Cursor mit
+   *  Zeit/Speed/Hoehe. Unabhaengig vom rechtsseitigen InfoPanel. */
+  showTooltip?: boolean;
 }
 
 function buildInitialViewState(track: TrackData): ViewState {
@@ -34,7 +47,7 @@ function buildInitialViewState(track: TrackData): ViewState {
 
 const FALLBACK: Rgba = [150, 150, 150, 180];
 
-export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, zScale, onZoomChange }: Props) {
+export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, charts, showCharts, zScale, onZoomChange, onPointPick, showTooltip = false }: Props) {
   const [viewState, setViewState] = useState<ViewState>(
     () => buildInitialViewState(track)
   );
@@ -101,6 +114,16 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, zSc
 
     if (dem) result.push(makeTerrainLayer(dem, altBase, Z_SCALE));
 
+    // Chart-Overlays vor Curtain/Track rendern, damit sie unter dem Track liegen.
+    // Bei mehreren Charts sind sie additiv -- ueberlappende PNGs ueberblenden
+    // sich entsprechend ihrer Alpha-Kanaele.
+    if (showCharts && charts.length > 0) {
+      for (const ch of charts) {
+        result.push(makeChartLayer(ch.overlay, ch.image, dem?.grid ?? null,
+                                   altBase, Z_SCALE));
+      }
+    }
+
     if (showCurtain) result.push(makeCurtainLayer(curtainSegments, colorMode));
 
     result.push(new PathLayer({
@@ -133,13 +156,89 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, zSc
       },
     }));
 
+    // Unsichtbarer Pickable-Layer ueber dem Track, damit der Nutzer mit
+    // Maus/Touch einen einzelnen Punkt selektieren kann (synchronisiert
+    // Slider, InfoPanel und Skyplot). PathLayer selbst ist nicht
+    // pickbar-per-Punkt, daher dieser zusaetzliche Layer.
+    //
+    // Wir setzen alpha = 0, damit der Layer optisch nicht stoert; deck.gl
+    // pickt trotzdem, weil die Picking-Engine eine separate Off-Screen-
+    // Pass nutzt, die Alpha ignoriert.
+    if (onPointPick) {
+      const pickRadius = 6; // px -- grossere Toleranz fuer einfacheres Treffen
+      result.push(new ScatterplotLayer({
+        id: "track-pick",
+        data: track.points.lat.map((_la, i) => i),
+        getPosition: (i: any) => {
+          const idx = i as number;
+          return [
+            track.points.lon[idx],
+            track.points.lat[idx],
+            exagAlt(track.points.alt[idx]),
+          ];
+        },
+        getRadius: pickRadius,
+        radiusUnits: "pixels",
+        getFillColor: [0, 0, 0, 0],   // unsichtbar
+        pickable: true,
+        onHover: (info: any) => {
+          if (info.object !== undefined && info.object !== null) {
+            onPointPick(info.object as number);
+          }
+        },
+        updateTriggers: {
+          getPosition: [zScale, altBase],
+        },
+      }));
+    }
+
     return result;
-  }, [dem, curtainSegments, pathSegments, activePt, colorMode, showCurtain, exagAlt, activeIdx]);
+  }, [dem, curtainSegments, pathSegments, activePt, colorMode, showCurtain,
+      charts, showCharts, altBase, Z_SCALE, exagAlt, activeIdx, track, onPointPick]);
 
   const handleViewStateChange = useCallback(({ viewState: vs }: any) => {
     setViewState(vs);
     onZoomChange?.(vs.zoom);
   }, [onZoomChange]);
+
+  // Tooltip-Renderer: deck.gl ruft das mit dem PickInfo des aktuell
+  // gehoverten Layers auf. Wir filtern explizit auf "track-pick" (unser
+  // unsichtbarer Pickable-Layer), damit andere Layers (Terrain, Charts)
+  // keinen Tooltip ausloesen.
+  const getTooltip = useCallback((info: any) => {
+    if (!showTooltip) return null;
+    if (!info || info.layer?.id !== "track-pick") return null;
+    const idx = info.object as number | undefined;
+    if (idx === undefined || idx === null) return null;
+
+    const ts    = track.points.timestamp_ms[idx];
+    const speed = track.points.speed_kmh[idx] ?? null;
+    const alt   = track.points.alt[idx]       ?? null;
+    const above = track.points.above_terrain?.[idx] ?? null;
+
+    // Minimal-HTML -- nur die wichtigsten Werte, damit der Tooltip kompakt
+    // bleibt und den Blick auf den Track nicht zu sehr verdeckt.
+    const lines: string[] = [];
+    if (ts) lines.push(formatTimestamp(ts));
+    lines.push(formatSpeed(speed));
+    lines.push(`MSL ${formatAltitude(alt)}`);
+    if (above !== null) lines.push(`ueG ${above.toFixed(0)} m`);
+
+    return {
+      html: lines.map((l) => `<div>${l}</div>`).join(""),
+      style: {
+        background: "rgba(20, 20, 28, 0.92)",
+        color: "#eee",
+        fontSize: "11px",
+        fontFamily: "system-ui, sans-serif",
+        padding: "6px 8px",
+        borderRadius: "4px",
+        border: "1px solid rgba(255,255,255,0.15)",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+        // pointerEvents: none ist deck.gl-Default -- wir bleiben passiv.
+      },
+    };
+  }, [showTooltip, track]);
 
   return (
     <DeckGL
@@ -148,6 +247,7 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, zSc
       controller={{ dragRotate: true, touchRotate: true }}
       layers={layers}
       onViewStateChange={handleViewStateChange}
+      getTooltip={getTooltip}
       style={{ position: "relative", width: "100%", height: "100%" }}
     >
       <div style={{

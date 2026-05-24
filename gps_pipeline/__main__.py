@@ -11,6 +11,7 @@ Die eigentlichen API-Funktionen liegen in ``api.py``. Direkt importieren via::
 from pathlib import Path
 
 from .api import process_nmea, process_gpx, process_kml, render_visualizations
+from .parsing.chart import find_charts, is_chart_config
 
 
 # Verzeichnisse — relativ zum aktuellen Arbeitsverzeichnis.
@@ -37,7 +38,17 @@ def main() -> None:
     else:
         print("Keine DEM-Tiles (*.tif) in data/ gefunden. Visualisierungen ohne Terrain.")
 
-    nmea_files = sorted(input_dir.glob("*.txt"))
+    # Karten-Overlays (PNG + gleichnamige TXT mit 4 Eckkoordinaten) sammeln.
+    # Die zugehoerigen TXT-Dateien duerfen nicht als NMEA-Logs verarbeitet
+    # werden, daher filtern wir sie heraus.
+    charts = find_charts(input_dir)
+    if charts:
+        print(f"Karten-Overlays gefunden: {[c.name for c in charts]}")
+
+    nmea_files = [
+        p for p in sorted(input_dir.glob("*.txt"))
+        if not is_chart_config(p)
+    ]
     gpx_files = sorted(input_dir.glob("*.gpx"))
     kml_files = sorted(input_dir.glob("*.kml"))
 

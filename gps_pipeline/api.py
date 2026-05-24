@@ -33,6 +33,8 @@ from .visualization.track_with_satellites import render_track_with_satellites
 from .visualization.multi_track import visualize_multiple
 from .export.json_export import export_track_json, export_satellite_json
 from .export.dem_lod import export_dem_lods
+from .export.chart_export import export_charts
+from .parsing.chart import ChartOverlay
 
 
 def process_nmea(file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -193,6 +195,7 @@ def export_for_viewer(
     dem_paths: Optional[list] = None,
     source_type: str = "nmea",
     z_offset_mode=None,
+    charts: Optional[list[ChartOverlay]] = None,
 ) -> Path:
     """Exportiert Track + DEM als statische JSON-Dateien für den React-Viewer.
 
@@ -218,6 +221,10 @@ def export_for_viewer(
         "nmea" | "gpx" | "kml" — wird in track.json gespeichert.
     z_offset_mode : "auto" | "none" | None | float, optional
         Überschreibt config.TRACK_Z_OFFSET für DEM-Enrichment.
+    charts : list of ChartOverlay, optional
+        Karten-Overlays (PNG + georeferenzierte Eckkoordinaten), die ueber
+        das Terrain gedrapt im Viewer angezeigt werden. Werden ueber
+        ``find_charts(data_dir)`` aus dem Daten-Ordner gesammelt.
 
     Returns
     -------
@@ -283,13 +290,21 @@ def export_for_viewer(
             name_prefix=name_prefix,
         )
 
-    # 4. manifest.json — React liest das als erstes
+    # 4. Karten-Overlays (optional) -- PNGs nach output/charts/ kopieren,
+    # charts.json schreiben. Komplett unabhaengig vom Track-Pfad, daher
+    # einfach hier am Ende eingefuegt.
+    chart_entries: list[dict] = []
+    if charts:
+        chart_entries = export_charts(charts, output_dir)
+
+    # 5. manifest.json — React liest das als erstes
     manifest = {
         "track": "track.json",
         "satellites": "satellites.json" if has_satellites else None,
         "dem_lods": written_lods,
         "dem_prefix": name_prefix,
-        "viewer_version": "1.0",
+        "charts": "charts.json" if chart_entries else None,
+        "viewer_version": "1.1",
     }
     with open(output_dir / "manifest.json", "w", encoding="utf-8") as f:
         _json.dump(manifest, f, indent=2)

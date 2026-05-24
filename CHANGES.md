@@ -1,9 +1,27 @@
-# GPS-Pipeline — Stand 20. Mai 2026
+# GPS-Pipeline — Stand 24. Mai 2026
 
 Dieses Dokument beschreibt den aktuellen Stand nach der mehrtägigen Refactor-
 und Ausbau-Session. Es ersetzt den älteren `refactor_plan.md` (Stand 4. Mai),
 der nur den ursprünglichen Plan enthält und seitdem viele Details nicht mehr
 widerspiegelt.
+
+## Projekt-Scope
+
+Die GPS-Pipeline ist ein Werkzeugkasten für die Verarbeitung und Darstellung
+von GPS-Track-Daten. Sie deckt drei Ebenen ab:
+
+1. **Parsing & Verarbeitung** (Python): NMEA-Logs, GPX-Dateien und KML-
+   `gx:Track` werden in ein einheitliches Schema-C-DataFrame überführt
+   (Position, Zeit, Höhe, Geschwindigkeit, Distanz, optional Terrain-Höhe).
+2. **Visualisierung** (Python + React/TypeScript): Plotly-HTML-Ausgaben für
+   schnelle Einzel-Snapshots; React-Viewer mit deck.gl für interaktive
+   Erkundung mit DEM-Mesh, Vorhang-Layer, Skyplot, Z-Exaggeration.
+3. **Track-Bearbeitung** (Python + React): Karten-Overlays (georef. PNGs),
+   Trimming, Synthetic-Tracks mit kontrolliert verschobener Zeitachse.
+
+Der React-Viewer wird einmalig gebaut (`npm run build`) und über
+`python view.py output/` ausgeliefert -- kein laufendes Python nötig
+während der Anzeige, kein Backend-Server.
 
 ## Architekturüberblick
 
@@ -18,13 +36,16 @@ gps_pipeline/
 │   ├── nmea.py                # NMEA-Datei → Liste von pynmea2-Objekten
 │   ├── nmea_to_dataframe.py   # NMEA → Schema A (eine Zeile pro Satz)
 │   ├── gpx.py                 # GPX → Schema B
-│   └── kml.py                 # KML (gx:Track) → Schema B
+│   ├── kml.py                 # KML (gx:Track) → Schema B
+│   └── chart.py               # PNG+TXT-Paare → ChartOverlay (Schritt 5)
 ├── processing/
 │   ├── filter.py              # GPS-Fix-Filter (Schema A)
 │   ├── consolidate.py         # Schema A → Schema B
 │   ├── enrich.py              # Schema B → Schema C (Distanz, Speed)
 │   ├── enrich_terrain.py      # Schema C + DEM → Schema C + terrain_elevation
-│   └── gsv_aggregate.py       # GSV-Sätze aggregieren (für Satellite-View)
+│   ├── gsv_aggregate.py       # GSV-Sätze aggregieren (für Satellite-View)
+│   ├── trim.py                # Track-Trimming (Cut-Ranges)  [Schritt 5]
+│   └── synthetic.py           # Synthetic-Track (Zeitachse stauchen) [Schritt 5]
 ├── visualization/
 │   ├── three_d.py             # 3D-Track-Plot
 │   ├── satellite_view.py      # Polar-Plot der Satellitenkonstellation
@@ -33,8 +54,12 @@ gps_pipeline/
 │   └── dem.py                 # GeoTIFF-DEM laden, samplen, vergleichen
 ├── utils/
 │   └── safe_convert.py        # Robuste Type-Konvertierungen
-└── dataframe_io/
-    └── feather.py             # DataFrame-Persistierung
+├── dataframe_io/
+│   └── feather.py             # DataFrame-Persistierung
+└── export/
+    ├── json_export.py         # Schema-C → track.json
+    ├── dem_lod.py             # GeoTIFF → DEM-LOD-JSONs
+    └── chart_export.py        # ChartOverlay → charts.json + PNG-Kopie [Schritt 5]
 ```
 
 ## Datenfluss
@@ -267,12 +292,106 @@ folgende Features erweitert:
 - **InfoPanel**: neue Felder „Punkt #" (1-basiert, Gesamt) und
   „Höhe ü.Grd" (above_terrain aus DEM). „Höhe" umbenannt in „Höhe MSL".
 
+## Schritt 5 -- Karten-Overlays, Trimming, Synthetic-Tracks (24. Mai 2026)
+
+Drei eng verwandte Features in einer Session:
+
+### 5a -- Karten-Overlays (PNG drapt auf DEM)
+
+Anflugkarten oder beliebige georeferenzierte Bilder lassen sich auf das
+DEM-Mesh "drapen" -- die Karte folgt den Höhenkonturen statt flach
+darüber zu schweben.
+
+* **Input-Format**: `EDFG.png` + `EDFG.txt` im `data/`-Ordner. Die TXT
+  enthält vier Eckkoordinaten in WGS84 (links-oben, rechts-oben,
+  links-unten, rechts-unten), je Zeile `lon lat`. Optional
+  `elevation_m: 220` als Fallback ohne DEM.
+* **Backend**: `parsing/chart.py` parst PNG+TXT-Paare;
+  `export/chart_export.py` kopiert die PNGs nach `output/charts/` und
+  schreibt `charts.json`.
+* **Frontend**: `utils/chartMesh.ts` baut für jede Karte ein 32×32-Mesh,
+  bei dem jeder Vertex die DEM-Höhe an dieser Stelle bekommt (echtes
+  Draping). UV-Koordinaten ergeben sich trivial aus der Gitterposition.
+  `layers/chartLayer.ts` rendert das mit `SimpleMeshLayer` und PNG-Textur.
+* **Z-Exaggeration**: identisch zu Terrain/Track verwendet -- die Karte
+  bleibt konsistent am Gelände, auch wenn der Z-Scale-Faktor wechselt.
+* **UI**: Karten-Toggle erscheint nur wenn `charts.json` Overlays enthält.
+  Mehrere Karten gleichzeitig sind unterstützt (z.B. Anflug + Abflug).
+
+Die mathematische "Verzerrung" durch die zusätzliche Mesh-Oberfläche ist
+bei typischen Anflugkarten (~3 km Ausdehnung, 30 m Höhenvariation) bei
+~5e-5 -- praktisch unsichtbar, aber visuell sieht der Track jetzt
+"aufgelegt" statt "schwebend" aus.
+
+### 5b -- Range-Selection (Trimming + Multi-Cut)
+
+Generischer Mechanismus zum Definieren von Index-Bereichen, die aus dem
+Track entfernt werden sollen. Drei Anwendungsfälle:
+
+* **Reines Trimming**: `[0..50]` und `[N-30..N-1]` als Cut-Ranges -->
+  Track-Anfang und -Ende abschneiden.
+* **Zwischenstopp entfernen**: ein einzelner Cut `[200..350]` --> die
+  Pause in der Mitte verschwindet.
+* **Mehrfach-Cuts**: Anfang/Ende UND mehrere Pausen gleichzeitig.
+
+* **Frontend**: `hooks/useRangeSelection.ts` verwaltet die Liste,
+  `components/RangeSelector.tsx` zeigt die Cuts als rote Balken auf einer
+  Track-Leiste; jeder Cut hat zwei Drag-Handles und einen Entfernen-Button.
+  "+ Cut" fügt einen neuen Cut um die aktuelle Slider-Position ein. "Export"
+  lädt eine `ranges.json` herunter.
+* **Backend**: `processing/trim.py::trim_track(df, ranges)` schneidet die
+  Bereiche aus einem Schema-C-DataFrame. `load_cut_ranges(path)` liest
+  die vom Viewer exportierte `ranges.json`.
+
+### 5c -- Synthetic-Tracks (Zeitachse stauchen)
+
+Für Analysen, in denen Pausen "nie passiert sein" sollen (z.B. reine
+Fahrzeit-Auswertung einer Autofahrt mit Ladestopps):
+
+* `processing/synthetic.py::create_synthetic_track(df_c, cuts, interp_n=10)`
+  entfernt Cut-Punkte UND berechnet pro Cut die natürliche Brückenzeit
+  aus geodätischer Distanz zwischen den Cut-Rändern und der mittleren
+  Geschwindigkeit der `interp_n` Nachbarpunkte. Alle nachfolgenden
+  Zeitstempel werden entsprechend nach vorne geschoben.
+* **Markierung**: Neue Spalte `is_synthetic` (True wenn der Zeitstempel
+  der Zeile verändert wurde).
+* **Schutzmechanismus**: `save_synthetic()` erzwingt das Suffix
+  `_synthetic.feather` und schreibt eine Sidecar-Metadaten-Datei
+  `_synthetic.meta.json` mit den ursprünglichen Cut-Ranges,
+  Erstellungszeit und einer expliziten Warnung, dass GSV-/Satellitendaten
+  für diesen Track nicht mehr gültig sind.
+
+### 5d -- Klickbare Track-Punkte für Satellitenauswahl
+
+Bisher ließ sich der aktive Punkt nur über den Slider scrubben. Jetzt
+liegt ein unsichtbarer `ScatterplotLayer` (`getFillColor=[0,0,0,0]`,
+`pickable: true`) über dem Track. `onHover` setzt direkt `activeIdx` --
+InfoPanel, Skyplot und Aktiv-Marker reagieren sofort, ohne dass der
+Slider händisch bewegt werden muss.
+
+### 5e -- Hover-Tooltip (Panel/Tooltip/Beide)
+
+Aufbauend auf 5d: der unsichtbare Pickable-Layer treibt jetzt zusätzlich
+einen schwebenden Tooltip am Cursor (deck.gl `getTooltip`-Prop). Inhalt
+minimal -- Zeit, Geschwindigkeit, Höhe MSL, Höhe ü.Grd. Ein neuer
+3-Wege-Pill-Switch `InfoModeButtons` schaltet zwischen:
+
+- **Panel**: rechtsseitiges InfoPanel (Default-Verhalten bis Schritt 4)
+- **Tooltip**: nur Floating-Tooltip; Side-Panel wird ausgeblendet (300px
+  mehr Bildbreite für den Track), falls auch kein Skyplot dort steht
+- **Beide**: gleichzeitig (Default)
+
+Tooltip filtert auf `layer.id === "track-pick"`, damit andere Layers
+(Terrain, Chart-Overlays) ihn nicht auslösen.
+
 ## TODO / Geplant
 
-- Track-Trimming-Werkzeug (in separatem Projekt)
 - Test mit echten ZED-X20P-Multi-Constellation-Daten
-- Satellite-View-Animation (Klick im Track-Plot → Satellitenkonstellation
-  zu diesem Zeitpunkt anzeigen)
+- Satellite-View-Warnung bei `is_synthetic === true` (synthetische Punkte
+  haben keine validen Satellitendaten -- UI sollte das anzeigen)
+- `ranges.json` direkt vom Viewer an einen kleinen Endpoint in `view.py`
+  posten (statt Download/CLI-Roundtrip)
+- Vergleichs-Ansicht (zwei Tracks gleichzeitig im React-Viewer)
 
 ## Verlauf der Konstanten und Defaults
 
@@ -288,3 +407,57 @@ Hilfreich beim Nachschauen, falls ein Wert in einem Plot nicht stimmt:
 | `DEFAULT_QUANTILES` | `5` | Anzahl Speed-Quantile (in 3D-Plot) |
 | `DEFAULT_COLORSCALE` | `"Plasma"` | Plotly-Colorscale |
 | `DEFAULT_Z_EXAGGERATION` | `1.0` | Z-Überhöhung im 3D-Plot |
+
+## Workflow-Beispiele
+
+### Karten-Overlay anzeigen
+
+```powershell
+# 1. PNG + TXT in data/ ablegen, z.B.:
+#    data/EDFG.png         (Anflugkarte)
+#    data/EDFG.txt         (4 Eckkoordinaten + optional elevation_m)
+# 2. Export
+python -c "
+from pathlib import Path
+from gps_pipeline import process_nmea, export_for_viewer, find_charts
+df_raw, df_c = process_nmea(Path('data/track.txt'))
+charts = find_charts(Path('data'))
+export_for_viewer(df_c, Path('output'), name_prefix='test',
+                  df_raw=df_raw, charts=charts)
+"
+python view.py output
+```
+
+### Track trimmen
+
+```powershell
+# 1. Im React-Viewer Cuts definieren, "Export" klickt -> ranges.json
+# 2. Trimming anwenden
+python -c "
+from pathlib import Path
+from gps_pipeline import load_cut_ranges, trim_track
+from gps_pipeline.dataframe_io.feather import load_df, save_df
+df = load_df('output/test.feather')
+cuts = load_cut_ranges(Path('ranges.json'))
+trimmed = trim_track(df, cuts)
+save_df(trimmed, 'output/test_trimmed.feather')
+"
+```
+
+### Synthetic-Track (Pausen "wegtricksen")
+
+```powershell
+python -c "
+from pathlib import Path
+from gps_pipeline import (
+    load_cut_ranges, create_synthetic_track, save_synthetic,
+)
+from gps_pipeline.dataframe_io.feather import load_df
+df = load_df('output/test.feather')
+cuts = load_cut_ranges(Path('ranges.json'))
+df_synth, meta = create_synthetic_track(df, cuts, interp_n=10,
+                                        source_name='test')
+save_synthetic(df_synth, meta, Path('output/test'))
+# -> output/test_synthetic.feather + test_synthetic.meta.json
+"
+```

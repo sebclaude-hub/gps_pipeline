@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import { useTrackData } from "./hooks/useTrackData";
 import { useSatelliteData } from "./hooks/useSatelliteData";
 import { useDemLod } from "./hooks/useDemLod";
+import { useCharts } from "./hooks/useCharts";
 import { TrackViewer } from "./components/TrackViewer";
 import { SkyPlot } from "./components/SkyPlot";
 import { TrackSlider } from "./components/TrackSlider";
@@ -9,9 +10,13 @@ import { ColorLegend } from "./components/ColorLegend";
 import { ToggleSwitch } from "./components/ToggleSwitch";
 import { ZScaleButtons } from "./components/ZScaleButtons";
 import { InfoPanel } from "./components/InfoPanel";
+import { InfoModeButtons, type InfoMode } from "./components/InfoModeButtons";
+import { RangeSelector } from "./components/RangeSelector";
+import { useRangeSelection } from "./hooks/useRangeSelection";
 import type { ColorMode } from "./types";
 
 type CurtainMode = "on" | "off";
+type ChartsMode = "on" | "off";
 const Z_OPTIONS = [1, 2, 3, 5, 7.5, 10];
 import { formatDuration, formatDistance } from "./utils/formatters";
 
@@ -34,11 +39,21 @@ export default function App() {
   const [zoom, setZoom] = useState(10);
   const [colorMode, setColorMode] = useState<ColorMode>("speed");
   const [curtainMode, setCurtainMode] = useState<CurtainMode>("on");
+  const [chartsMode, setChartsMode] = useState<ChartsMode>("on");
   const [zScale, setZScale] = useState<number>(3);
+  // "both" als Default: Panel rechts UND Tooltip am Cursor. Wer es minimaler
+  // mag, schaltet auf "panel" oder "tooltip" um.
+  const [infoMode, setInfoMode] = useState<InfoMode>("both");
 
   const hasSat = track?.meta.has_satellites ?? false;
   const { data: satData } = useSatelliteData(hasSat);
   const { demLod } = useDemLod(zoom, DEM_LODS, DEM_PREFIX);
+  // Karten-Overlays werden unabhaengig vom Track geladen. Wenn keine
+  // charts.json existiert, kommt eine leere Liste zurueck (kein Fehler).
+  const { charts } = useCharts();
+  // Cut-Range-Auswahl fuer Trimming/Multi-Cut. Lebt im Top-Level-State,
+  // damit z.B. Markierungen im Track-Plot spaeter darauf zugreifen koennen.
+  const rangeApi = useRangeSelection();
 
   const handleZoom = useCallback((z: number) => setZoom(z), []);
 
@@ -85,8 +100,12 @@ export default function App() {
             activeIdx={activeIdx}
             colorMode={colorMode}
             showCurtain={curtainMode === "on"}
+            charts={charts}
+            showCharts={chartsMode === "on"}
             zScale={zScale}
             onZoomChange={handleZoom}
+            onPointPick={setActiveIdx}
+            showTooltip={infoMode === "tooltip" || infoMode === "both"}
           />
           <div style={togglesStyle}>
             <ToggleSwitch<ColorMode>
@@ -103,11 +122,34 @@ export default function App() {
               onChange={setCurtainMode}
               title="Vorhang ein- oder ausblenden"
             />
+            {/* Karten-Toggle nur einblenden, wenn ueberhaupt Overlays
+                geladen wurden -- spart Platz im UI, wenn keine vorhanden sind. */}
+            {charts.length > 0 && (
+              <ToggleSwitch<ChartsMode>
+                value={chartsMode}
+                options={["on", "off"]}
+                labels={[`Karten (${charts.length})`, "aus"]}
+                onChange={setChartsMode}
+                title="Karten-Overlays ein- oder ausblenden"
+              />
+            )}
+            <InfoModeButtons value={infoMode} onChange={setInfoMode} />
             <ZScaleButtons value={zScale} options={Z_OPTIONS} onChange={setZScale} />
           </div>
-          <ColorLegend breaks={track.quantile_breaks} colorMode={colorMode} />
+          {/* Legende dynamisch positionieren: 12px Top + (Anzahl Toggle-Reihen
+              * 36px Hoehe inkl. Gap). Charts-Toggle ist optional, InfoMode
+              und ZScale immer da, plus zwei Top-Toggles. */}
+          <ColorLegend
+            breaks={track.quantile_breaks}
+            colorMode={colorMode}
+            topOffset={12 + (charts.length > 0 ? 5 : 4) * 36}
+          />
         </div>
 
+        {/* Side-Panel komplett ausblenden, wenn nichts darin steht
+            (kein Skyplot + InfoMode === "tooltip"). Spart 300px Bildbreite
+            fuer den Track. */}
+        {(hasSat || infoMode !== "tooltip") && (
         <div style={sidePanelStyle}>
           {hasSat && (
             <>
@@ -122,10 +164,21 @@ export default function App() {
               )}
             </>
           )}
-          <InfoPanel track={track} activeIdx={activeIdx} />
+          {/* InfoPanel nur in den Modi "panel" und "both" anzeigen --
+              im reinen "tooltip"-Modus erscheint die Info ausschliesslich
+              schwebend am Cursor. */}
+          {(infoMode === "panel" || infoMode === "both") && (
+            <InfoPanel track={track} activeIdx={activeIdx} />
+          )}
         </div>
+        )}
       </div>
 
+      <RangeSelector
+        totalPoints={track.points.lat.length}
+        activeIdx={activeIdx}
+        api={rangeApi}
+      />
       <TrackSlider
         track={track}
         activeIdx={activeIdx}
