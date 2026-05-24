@@ -109,6 +109,7 @@ def export_track_json(
     *,
     name_prefix: str = "track",
     n_quantiles: int = DEFAULT_QUANTILES,
+    suggested_z_offset: float = 0.0,
 ) -> None:
     """Serialisiert einen Schema-C-DataFrame nach track.json.
 
@@ -123,6 +124,12 @@ def export_track_json(
         Anzeigename im Viewer.
     n_quantiles : int
         Anzahl Geschwindigkeits-Quantilklassen.
+    suggested_z_offset : float
+        Vorgeschlagener Z-Offset in Metern, als Hint fuer den React-Viewer
+        (Default-Wert des Offset-Sliders). Wird in ``meta`` exportiert,
+        aber NICHT in ``points.alt`` oder ``points.above_terrain`` vorgebacken
+        -- der Viewer wendet ihn live auf die Darstellung an, sodass der
+        Nutzer interaktiv nachregeln kann.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -133,7 +140,14 @@ def export_track_json(
     speed = df_c.get("speed_kmh", pd.Series(np.nan, index=df_c.index))
     dist = df_c.get("distance_m", pd.Series(np.nan, index=df_c.index))
     terrain = df_c.get("terrain_elevation", pd.Series(np.nan, index=df_c.index))
-    above = df_c.get("track_above_terrain", pd.Series(np.nan, index=df_c.index))
+    # above_terrain wird hier NEUTRAL (ohne vorgebackenen Offset) berechnet,
+    # damit der React-Viewer den Offset live anpassen kann. Der spaltenwert
+    # ``track_above_terrain`` aus enrich_terrain_elevation enthaelt den
+    # Python-seitigen Offset und wird hier bewusst ignoriert.
+    if alt is not None and terrain is not None:
+        above = alt.astype("Float64") - terrain.astype("Float64")
+    else:
+        above = pd.Series(np.nan, index=df_c.index)
     fix_quality = df_c.get("gga_gps_quality", pd.Series(np.nan, index=df_c.index))
     num_sats = df_c.get("gga_num_sats", pd.Series(np.nan, index=df_c.index))
     hdop = df_c.get("gga_hdop", pd.Series(np.nan, index=df_c.index))
@@ -177,6 +191,9 @@ def export_track_json(
             "track_mode": track_mode,
             "has_terrain": bool(has_terrain),
             "has_satellites": False,        # wird von export_satellite_json gesetzt
+            # Vorschlag fuer den Offset-Slider im Viewer. Nicht in alt/above
+            # vorgebacken -- der Viewer wendet es als initialen Slider-Wert an.
+            "suggested_z_offset_m": round(float(suggested_z_offset), 2),
         },
         "quantile_breaks": {
             "speed_kmh": breaks,

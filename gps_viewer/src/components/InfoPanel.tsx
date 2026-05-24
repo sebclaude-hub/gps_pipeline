@@ -19,16 +19,23 @@ const FIX_LABELS: Record<number, string> = {
 interface Props {
   track: TrackData;
   activeIdx: number;
+  /** Z-Offset (m), live aus dem Slider. Verschiebt Hoehe MSL und
+   *  above_terrain entsprechend. */
+  zOffset?: number;
 }
 
-export function InfoPanel({ track, activeIdx }: Props) {
+export function InfoPanel({ track, activeIdx, zOffset = 0 }: Props) {
   const pts = track.points;
   const idx = Math.max(0, Math.min(activeIdx, pts.lat.length - 1));
 
   const lat       = pts.lat[idx];
   const lon       = pts.lon[idx];
-  const alt       = pts.alt[idx] ?? null;
-  const above     = pts.above_terrain?.[idx] ?? null;
+  const altRaw    = pts.alt[idx] ?? null;
+  const terr      = pts.terrain_elev[idx] ?? null;
+  // Live mit dem aktuellen Offset rechnen, statt das gespeicherte
+  // above_terrain aus JSON zu lesen.
+  const alt   = altRaw !== null ? altRaw + zOffset : null;
+  const above = (altRaw !== null && terr !== null) ? (altRaw + zOffset - terr) : null;
   const speed     = pts.speed_kmh[idx] ?? null;
   const ts        = pts.timestamp_ms[idx];
   const fix       = pts.fix_quality?.[idx] ?? null;

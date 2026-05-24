@@ -34,19 +34,27 @@ export function buildCurtainSegments(
   rankPositions: number[],
   altBase: number = 0,
   zScale: number = 1,
+  zOffset: number = 0,
 ): CurtainSegment[] {
   const { lat, lon, alt, terrain_elev } = track.points;
   const n = lat.length;
   const segments: CurtainSegment[] = [];
 
-  const exag = (h: number) => altBase + (h - altBase) * zScale;
+  // Zwei verschiedene Z-Transformationen:
+  //   exagTrack   verschiebt + skaliert die Track-Hoehe (Vorhang-Oberkante)
+  //   exagTerrain skaliert nur die Terrain-Hoehe (Vorhang-Unterkante)
+  // Der Z-Offset wirkt damit ausschliesslich auf den Track. Das Terrain
+  // bleibt an seiner echten Position (das Terrain-Mesh nutzt ja auch
+  // exagTerrain-Formel).
+  const exagTrack = (h: number) => altBase + ((h + zOffset) - altBase) * zScale;
+  const exagTerrain = (h: number) => altBase + (h - altBase) * zScale;
   const EPS = 1e-6; // grad ≈ 11 cm — gibt earcut eine triangulierbare XY-Fläche
 
   for (let i = 0; i < n - 1; i++) {
     const lat_i  = lat[i],    lon_i  = lon[i];
     const lat_i1 = lat[i + 1], lon_i1 = lon[i + 1];
-    const alt_i  = exag(alt[i]  ?? altBase);
-    const alt_i1 = exag(alt[i + 1] ?? altBase);
+    const alt_i  = exagTrack(alt[i]  ?? altBase);
+    const alt_i1 = exagTrack(alt[i + 1] ?? altBase);
 
     // Perpendikularer XY-Offset
     const dx = lon_i1 - lon_i;
@@ -55,16 +63,17 @@ export function buildCurtainSegments(
     const px = (-dy / len) * EPS;
     const py = ( dx / len) * EPS;
 
-    // Boden-Höhe (Terrain wenn vorhanden, sonst 0 MSL)
+    // Boden-Höhe (Terrain wenn vorhanden, sonst 0 MSL). Hier exagTerrain
+    // (OHNE Offset), damit der Vorhang am realen Gelaende ansetzt.
     let bot: number;
     if (terrain_elev[i] !== null && terrain_elev[i] !== undefined) {
-      const b_i = exag(terrain_elev[i]!);
-      const b_i1 = exag(terrain_elev[i + 1] ?? terrain_elev[i]!);
+      const b_i = exagTerrain(terrain_elev[i]!);
+      const b_i1 = exagTerrain(terrain_elev[i + 1] ?? terrain_elev[i]!);
       bot = (b_i + b_i1) / 2;
     } else if (demGrid) {
       const b_i  = sampleDem(demGrid, lon_i,  lat_i)  ?? altBase;
       const b_i1 = sampleDem(demGrid, lon_i1, lat_i1) ?? altBase;
-      bot = exag((b_i + b_i1) / 2);
+      bot = exagTerrain((b_i + b_i1) / 2);
     } else {
       bot = 0;
     }

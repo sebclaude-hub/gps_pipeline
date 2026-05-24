@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useTrackData } from "./hooks/useTrackData";
 import { useSatelliteData } from "./hooks/useSatelliteData";
 import { useDemLod } from "./hooks/useDemLod";
@@ -11,6 +11,7 @@ import { ToggleSwitch } from "./components/ToggleSwitch";
 import { ZScaleButtons } from "./components/ZScaleButtons";
 import { InfoPanel } from "./components/InfoPanel";
 import { InfoModeButtons, type InfoMode } from "./components/InfoModeButtons";
+import { OffsetSlider } from "./components/OffsetSlider";
 import { RangeSelector } from "./components/RangeSelector";
 import { useRangeSelection } from "./hooks/useRangeSelection";
 import type { ColorMode } from "./types";
@@ -54,6 +55,16 @@ export default function App() {
   // Cut-Range-Auswahl fuer Trimming/Multi-Cut. Lebt im Top-Level-State,
   // damit z.B. Markierungen im Track-Plot spaeter darauf zugreifen koennen.
   const rangeApi = useRangeSelection();
+  // Interaktiver Z-Offset (Default = Backend-Vorschlag aus track.json).
+  // Wird live in TrackViewer, Curtain, InfoPanel und Tooltip verrechnet.
+  const suggestedOffset = track?.meta.suggested_z_offset_m ?? 0;
+  const [zOffset, setZOffset] = useState<number>(suggestedOffset);
+  // Bei Trackwechsel den Slider auf den neuen Vorschlag zuruecksetzen.
+  // Track-Identitaet ueber name + n_points, beides reicht praktisch.
+  useEffect(() => {
+    setZOffset(suggestedOffset);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [track?.meta.name, track?.meta.n_points]);
 
   const handleZoom = useCallback((z: number) => setZoom(z), []);
 
@@ -107,6 +118,7 @@ export default function App() {
             onPointPick={setActiveIdx}
             showTooltip={infoMode === "tooltip" || infoMode === "both"}
             cutRanges={rangeApi.ranges}
+            zOffset={zOffset}
           />
           <div style={togglesStyle}>
             <ToggleSwitch<ColorMode>
@@ -136,14 +148,29 @@ export default function App() {
             )}
             <InfoModeButtons value={infoMode} onChange={setInfoMode} />
             <ZScaleButtons value={zScale} options={Z_OPTIONS} onChange={setZScale} />
+            {/* Offset-Slider nur einblenden, wenn Terrain-Daten da sind --
+                ohne DEM gibt's kein "ueber Grund" zum Justieren. */}
+            {meta.has_terrain && (
+              <OffsetSlider
+                value={zOffset}
+                suggested={suggestedOffset}
+                onChange={setZOffset}
+              />
+            )}
           </div>
-          {/* Legende dynamisch positionieren: 12px Top + (Anzahl Toggle-Reihen
-              * 36px Hoehe inkl. Gap). Charts-Toggle ist optional, InfoMode
-              und ZScale immer da, plus zwei Top-Toggles. */}
+          {/* Legende dynamisch positionieren. Pro Toggle ~36 px (28 px
+              + 8 px Gap). OffsetSlider ist ca. 80 px hoch. */}
           <ColorLegend
             breaks={track.quantile_breaks}
             colorMode={colorMode}
-            topOffset={12 + (charts.length > 0 ? 5 : 4) * 36}
+            topOffset={
+              12
+              + 2 * 36                             // ColorMode + Curtain
+              + (charts.length > 0 ? 36 : 0)       // Charts (optional)
+              + 36                                 // InfoMode
+              + 36                                 // ZScale
+              + (meta.has_terrain ? 88 : 0)        // OffsetSlider (optional)
+            }
           />
         </div>
 
@@ -169,7 +196,7 @@ export default function App() {
               im reinen "tooltip"-Modus erscheint die Info ausschliesslich
               schwebend am Cursor. */}
           {(infoMode === "panel" || infoMode === "both") && (
-            <InfoPanel track={track} activeIdx={activeIdx} />
+            <InfoPanel track={track} activeIdx={activeIdx} zOffset={zOffset} />
           )}
         </div>
         )}

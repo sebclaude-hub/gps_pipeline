@@ -36,6 +36,9 @@ interface Props {
   /** Cut-Ranges, die rot ueber dem Track hervorgehoben werden. Leeres
    *  Array oder undefined -> keine Hervorhebung. */
   cutRanges?: CutRange[];
+  /** Z-Offset in Metern, der auf alle Track-Hoehen vor der Z-Exaggeration
+   *  angewendet wird. Wird vom OffsetSlider gespeist. Default 0. */
+  zOffset?: number;
 }
 
 function buildInitialViewState(track: TrackData): ViewState {
@@ -51,7 +54,7 @@ function buildInitialViewState(track: TrackData): ViewState {
 
 const FALLBACK: Rgba = [150, 150, 150, 180];
 
-export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, charts, showCharts, zScale, onZoomChange, onPointPick, showTooltip = false, cutRanges = [] }: Props) {
+export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, charts, showCharts, zScale, onZoomChange, onPointPick, showTooltip = false, cutRanges = [], zOffset = 0 }: Props) {
   const [viewState, setViewState] = useState<ViewState>(
     () => buildInitialViewState(track)
   );
@@ -61,9 +64,12 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
     const alts = track.points.alt.filter((a): a is number => a !== null);
     return alts.length > 0 ? Math.min(...alts) : 0;
   }, [track]);
+  // Track-Hoehen-Transform: erst Offset addieren (verschiebt die Track-
+  // Linie relativ zum DEM nach oben/unten), dann Z-Exaggeration. altBase
+  // bleibt am Originalboden des Tracks, damit der Exag-Bezug stabil ist.
   const exagAlt = useCallback(
-    (alt: number | null) => altBase + ((alt ?? altBase) - altBase) * Z_SCALE,
-    [altBase, Z_SCALE]
+    (alt: number | null) => altBase + ((alt ?? altBase) + zOffset - altBase) * Z_SCALE,
+    [altBase, Z_SCALE, zOffset]
   );
 
   // Rang-Position pro Punkt für den aktiven Color-Mode
@@ -75,8 +81,8 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
   }, [track, colorMode]);
 
   const curtainSegments = useMemo(
-    () => buildCurtainSegments(track, dem?.grid ?? null, rankPositions, altBase, Z_SCALE),
-    [track, dem, rankPositions, altBase, Z_SCALE]
+    () => buildCurtainSegments(track, dem?.grid ?? null, rankPositions, altBase, Z_SCALE, zOffset),
+    [track, dem, rankPositions, altBase, Z_SCALE, zOffset]
   );
 
   // Track-Segmente als individuelle Paths (für farbige PathLayer)
@@ -258,14 +264,20 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
     const ts    = track.points.timestamp_ms[idx];
     const speed = track.points.speed_kmh[idx] ?? null;
     const alt   = track.points.alt[idx]       ?? null;
-    const above = track.points.above_terrain?.[idx] ?? null;
+    const terr  = track.points.terrain_elev[idx] ?? null;
+    // Live mit dem aktuellen Offset rechnen -- nicht das gespeicherte
+    // above_terrain aus JSON nehmen (das ignoriert den Slider).
+    const above = (alt !== null && terr !== null) ? (alt + zOffset - terr) : null;
+    // MSL-Anzeige enthaelt den Slider-Wert, damit "Hoehe" mit dem
+    // sichtbaren Z-Wert in der 3D-Szene uebereinstimmt.
+    const altShown = (alt !== null) ? alt + zOffset : null;
 
     // Minimal-HTML -- nur die wichtigsten Werte, damit der Tooltip kompakt
     // bleibt und den Blick auf den Track nicht zu sehr verdeckt.
     const lines: string[] = [];
     if (ts) lines.push(formatTimestamp(ts));
     lines.push(formatSpeed(speed));
-    lines.push(`MSL ${formatAltitude(alt)}`);
+    lines.push(`MSL ${formatAltitude(altShown)}`);
     if (above !== null) lines.push(`ueG ${above.toFixed(0)} m`);
 
     return {
@@ -282,7 +294,7 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
         // pointerEvents: none ist deck.gl-Default -- wir bleiben passiv.
       },
     };
-  }, [showTooltip, track]);
+  }, [showTooltip, track, zOffset]);
 
   return (
     <DeckGL

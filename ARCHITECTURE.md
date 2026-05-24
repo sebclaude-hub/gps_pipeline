@@ -150,17 +150,36 @@ korrigiert.
 
 ### Track-Z-Offset
 
-In der Visualisierung wird der Track relativ zum DEM positioniert über
-`TRACK_Z_OFFSET` in `config.py`. Drei Modi:
+Der Track wird relativ zum DEM um einen vertikalen Offset verschoben, um
+Bezugsunterschiede (Ellipsoid vs. NN-MSL, Geoidmodelle, GPS-Drift) zu
+kompensieren.
 
-- `"auto"` (Default): Median-basierter Vorschlag aus `compare_track_dem`,
-  **hart gedeckelt auf `>= -min(track - dem)`**. Damit gilt für jeden
-  Track-Punkt nach der Verschiebung garantiert `track_z + offset >= dem_z`
-  — Landungen, Taxi-Strecken und Bodenphasen verschwinden nie unter das
-  Gelände. Reine Kalibrierungs-Tracks (GPX-Ellipsoid vs. MSL) werden
-  weiterhin korrekt verschoben.
-- `"none"` oder `None`: kein Offset, Track wie er ist.
-- Zahl (z.B. `-36.4`): fester Wert in Metern (kein Clamping).
+**Wo der Offset wirkt:**
+
+- **Python-Auto-Diagnose** (`compare_track_dem` → `suggested_offset`):
+  Median-basiert + outlier-robust (5%-Perzentil) + asymmetrisch
+  geclampt (`max(raw, min(0, -p5))`). Liefert den Default für den
+  Slider, ohne dabei `points.alt` im Export zu modifizieren.
+- **Plotly-HTML-Pfad** (`three_d.py`): wendet den
+  `track_z_offset`-Parameter direkt auf die Track-Z-Positionen an.
+- **React-Viewer**: wendet den Offset **live im Frontend** an
+  (`zOffset`-State, geliefert vom `OffsetSlider`). `exagAlt(alt + offset)`
+  wird in TrackViewer-Pfad-Layer, Cut-Path-Overlay, aktivem Markerpunkt,
+  Pick-Layer und Curtain-Top angewendet. Terrain-Mesh, Chart-Mesh und
+  Curtain-Bottom bleiben unverändert (das DEM ist die Bezugsfläche).
+- **InfoPanel und Tooltip** im React-Viewer rechnen `above_terrain`
+  und `MSL` live aus `alt + zOffset − terrain_elev`.
+
+**Konfiguration** (`TRACK_Z_OFFSET` in `config.py`):
+
+- `"auto"` (Default): Auto-Diagnose mit Clamping. Wert landet in
+  `track.json::meta.suggested_z_offset_m` als Slider-Default.
+- `"none"` oder `None`: kein Offset, Vorschlag = 0.
+- Zahl (z.B. `-36.4`): fester Wert in Metern (überschreibt die
+  Auto-Diagnose). Slider-Default = dieser Wert.
+
+In allen Fällen darf der Nutzer im React-Viewer den Slider beliebig
+verschieben — der Python-Wert ist nur der Startpunkt.
 
 ### DEM-Auflösung
 

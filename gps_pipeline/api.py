@@ -282,9 +282,10 @@ def export_for_viewer(
         df_c = enrich_terrain_elevation(df_c, dem_paths, track_z_offset=track_z_offset)
         dem_data_lod = bounds   # nur Bounds weitergeben, LOD-Export macht eigene Loads
 
-    # 1. track.json
+    # 1. track.json -- mit suggested_z_offset als Slider-Default fuer den Viewer
     track_path = output_dir / "track.json"
-    export_track_json(df_c, track_path, name_prefix=name_prefix)
+    export_track_json(df_c, track_path, name_prefix=name_prefix,
+                      suggested_z_offset=track_z_offset)
 
     # Patch: source_type in Metadaten korrigieren
     import json as _json2

@@ -5,6 +5,52 @@ permanente Referenz liegen in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
+## Schritt 6b — Interaktiver DEM-Offset-Slider (25. Mai 2026)
+
+### Erkenntnis vorab — was Schritt 6a tatsächlich tat (und was nicht)
+
+Bei der UI-Diskussion zum Offset-Slider fiel auf, dass der Schritt-6a-Fix
+(P5-Perzentil + asymmetrisches Clamping) nur eines beeinflusst hat:
+**die Zahl `above_terrain` im InfoPanel/Tooltip**. Die *3D-Darstellung*
+des React-Viewers war davon unberührt, weil sie `points.alt` direkt
+verwendet (ohne Offset). Der Plotly-HTML-Pfad wendet den Offset auf den
+Track an, der React-Viewer nicht.
+
+Das heißt: die "Track unter DEM"-Stellen, die zur Diskussion führten,
+hatten mit der Offset-Heuristik nichts zu tun — das waren GPS-Bugs oder
+echte Geoid-Differenzen, sichtbar weil der React-Viewer rohe Track-Höhen
+zeigt. Schritt 6a verbesserte zwar das angezeigte `above_terrain`, aber
+nicht den 3D-Eindruck.
+
+### Was Schritt 6b macht
+
+Der Offset wird zur **interaktiven Live-Größe** im React-Viewer:
+
+* Backend-Änderung: `export_track_json` exportiert `points.above_terrain`
+  *ohne* vorgebackenen Offset (direkt `alt − terrain_elev`). Neuer
+  Meta-Eintrag `suggested_z_offset_m` enthält den Python-Auto-Vorschlag.
+* Frontend: neue Komponente `OffsetSlider` mit Schieberegler + numerischer
+  Anzeige (Doppelklick zum Edit) + Auto/0-Buttons. Range ±200 m um den
+  Vorschlag, Schritt 1 m (0.1 m mit Shift).
+* `TrackViewer.tsx`: `exagAlt(alt)` schiebt Track-Z um den Offset vor der
+  Z-Exaggeration. Curtain-Top zieht mit; Curtain-Bottom und Terrain-Mesh
+  bleiben unverändert (Offset nur auf den Track).
+* `InfoPanel` und Tooltip rechnen `above_terrain` live aus
+  `alt + zOffset − terrain_elev`, ebenso die angezeigte MSL-Höhe.
+
+Damit kann der Nutzer das DEM-Alignment am laufenden Modell justieren —
+typischer Anwendungsfall: Landeschwelle muss auf der Landebahn sitzen,
+oder eine bekannt-ebene Strecke darf nicht nach Bergen aussehen.
+
+### Konsequenz für Schritt 6a
+
+Die Python-Auto-Detection (P5 + asymmetrisches Clamping) bleibt erhalten,
+liefert aber jetzt nur noch den **Slider-Default**. Der Nutzer übernimmt
+die Feinkalibrierung. Der Plotly-HTML-Pfad (Legacy) nutzt den Wert
+weiterhin als Render-Offset.
+
+---
+
 ## Schritt 6 — Cut-Polish + DEM-Offset-Bugfix (25. Mai 2026)
 
 ### Cut-Range UX

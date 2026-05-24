@@ -21,6 +21,10 @@ export interface TrackMeta {
   track_mode: "flight" | "ground";
   has_terrain: boolean;
   has_satellites: boolean;
+  /** Vorschlag fuer den interaktiven Z-Offset-Slider (Default-Wert).
+   *  Aus der Python-seitigen Auto-Diagnose. Optional fuer Backwaerts-
+   *  kompatibilitaet mit aelteren track.json-Dateien. */
+  suggested_z_offset_m?: number;
 }
 
 export interface QuantileBreaks {
