@@ -1,30 +1,21 @@
 /**
  * RangeSelector -- UI fuer Cut-Range-Selektion (Trimming + Multi-Cut).
  *
- * Layout
- * ------
- * Sitzt ueber dem TrackSlider und besteht aus:
- *   * Einer horizontalen Track-Leiste (gleiche Breite wie der Slider darunter),
- *     auf der die Cut-Ranges als rote, halbtransparente Balken liegen.
- *   * Pro Range zwei Drag-Handles (Start und Ende), die die Range-Grenzen
- *     verschieben.
- *   * Buttons:
- *       - "+ Cut" fuegt einen neuen Range um die aktuelle Slider-Position herum ein.
- *       - "Reset" loescht alle Ranges.
- *       - "Export Ranges" laedt eine ranges.json mit den Cut-Definitionen herunter.
- *
- * Interaktion
- * -----------
- *   * Klick auf einen Handle + Drag verschiebt die Grenze.
- *   * Klick auf den X-Button entfernt den Range.
- *   * Klick auf den roten Balken (zwischen den Handles) tut nichts (passive
- *     Anzeige) -- der Active-Slider darunter bleibt bedienbar.
- *
- * Pixel-Mapping: ``pxPerPoint = trackWidthPx / (n - 1)``. Der Handle-Index
- * wird waehrend des Drags aus ``clientX`` zurueckgerechnet.
+ * Eigenschaften der UI
+ * --------------------
+ *   * Horizontale "Cut-Leiste" parallel zum TrackSlider darunter
+ *   * Cut-Bars in Rot, mit Index-Label "Cut 1", "Cut 2", ...
+ *     (sortiert nach Position auf dem Track, nicht nach Anlege-Reihenfolge).
+ *   * Bei Cuts am Track-Anfang (start === 0) bzw. -Ende (end === N-1):
+ *     Label-Wechsel zu "Trim Start" bzw. "Trim Ende" und der aeussere
+ *     Drag-Handle entfaellt, weil dieser Rand fix am Track-Rand klebt.
+ *   * Cuts duerfen sich NICHT ueberlappen (im Hook garantiert).
+ *   * "+ Cut" deaktiviert, wenn es um die aktuelle Slider-Position herum
+ *     keine Luecke mehr gibt.
+ *   * "Reset" loescht alle Cuts; "Export" laedt ranges.json herunter.
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { CutRange, RangeSelectionApi } from "../hooks/useRangeSelection";
 
 interface Props {
@@ -35,6 +26,36 @@ interface Props {
 
 const TRACK_HEIGHT = 18;
 const HANDLE_WIDTH = 10;
+
+// ---------------------------------------------------------------------------
+// Label-Helfer
+// ---------------------------------------------------------------------------
+
+/** Liefert pro Cut sein Anzeige-Label und ob es ein Trim-Edge ist. */
+function classifyCuts(
+  cuts: CutRange[],
+  totalPoints: number,
+): Array<CutRange & { label: string; trimStart: boolean; trimEnd: boolean }> {
+  const sorted = [...cuts].sort((a, b) => a.start - b.start);
+  let cutCounter = 0;
+  return sorted.map((r) => {
+    const trimStart = r.start === 0;
+    const trimEnd = r.end === totalPoints - 1;
+    let label: string;
+    if (trimStart && trimEnd) label = "Trim Alles";
+    else if (trimStart)       label = "Trim Start";
+    else if (trimEnd)         label = "Trim Ende";
+    else {
+      cutCounter += 1;
+      label = `Cut ${cutCounter}`;
+    }
+    return { ...r, label, trimStart, trimEnd };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Hauptkomponente
+// ---------------------------------------------------------------------------
 
 export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
   const trackRef = useRef<HTMLDivElement | null>(null);
@@ -53,6 +74,8 @@ export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
     api.addRange(activeIdx, totalPoints);
   }, [api, activeIdx, totalPoints]);
 
+  const canAdd = api.canAddRange(activeIdx, totalPoints);
+
   const handleExport = useCallback(() => {
     const payload = {
       total_points: totalPoints,
@@ -69,10 +92,28 @@ export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
     URL.revokeObjectURL(url);
   }, [api.ranges, totalPoints]);
 
+  // Labelled + sortiert -- benutze ich sowohl unten als auch fuer die
+  // Count-Anzeige rechts.
+  const labelled = useMemo(
+    () => classifyCuts(api.ranges, totalPoints),
+    [api.ranges, totalPoints]
+  );
+
   return (
     <div style={containerStyle}>
       <div style={leftCtrlsStyle}>
-        <button onClick={handleAdd} style={buttonStyle} title="Cut-Range um aktuelle Slider-Position einfuegen">
+        <button
+          onClick={handleAdd}
+          disabled={!canAdd}
+          style={{
+            ...buttonStyle,
+            opacity: canAdd ? 1 : 0.4,
+            cursor: canAdd ? "pointer" : "not-allowed",
+          }}
+          title={canAdd
+            ? "Cut um aktuelle Slider-Position einfuegen"
+            : "Keine freie Luecke um die Slider-Position"}
+        >
           + Cut
         </button>
         {api.ranges.length > 0 && (
@@ -89,10 +130,13 @@ export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
       </div>
 
       <div ref={trackRef} style={trackStyle}>
-        {api.ranges.map((r) => (
+        {labelled.map((r) => (
           <RangeBar
             key={r.id}
             range={r}
+            label={r.label}
+            trimStart={r.trimStart}
+            trimEnd={r.trimEnd}
             totalPoints={totalPoints}
             onMove={(start, end) => api.updateRange(r.id, { start, end }, totalPoints)}
             onRemove={() => api.removeRange(r.id)}
@@ -102,28 +146,33 @@ export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
       </div>
 
       <div style={countStyle}>
-        {api.ranges.length === 0
+        {labelled.length === 0
           ? <span style={{ color: "#555" }}>keine Cuts</span>
-          : <span>{api.ranges.length} Cut{api.ranges.length > 1 ? "s" : ""}</span>}
+          : <span>{labelled.length} Cut{labelled.length > 1 ? "s" : ""}</span>}
       </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// RangeBar: ein einzelner Cut-Range mit zwei Drag-Handles
+// RangeBar -- ein Cut-Balken
 // ---------------------------------------------------------------------------
 
 interface RangeBarProps {
   range: CutRange;
+  label: string;
+  trimStart: boolean;
+  trimEnd: boolean;
   totalPoints: number;
   onMove: (start: number, end: number) => void;
   onRemove: () => void;
   xToIdx: (clientX: number) => number;
 }
 
-function RangeBar({ range, totalPoints, onMove, onRemove, xToIdx }: RangeBarProps) {
-  // Drag-State: welche Seite wird gerade gezogen, und der "andere" feste Wert
+function RangeBar({
+  range, label, trimStart, trimEnd,
+  totalPoints, onMove, onRemove, xToIdx,
+}: RangeBarProps) {
   const [dragging, setDragging] = useState<"start" | "end" | null>(null);
 
   const leftPct = (range.start / (totalPoints - 1)) * 100;
@@ -146,9 +195,15 @@ function RangeBar({ range, totalPoints, onMove, onRemove, xToIdx }: RangeBarProp
 
   const endDrag = useCallback((e: React.PointerEvent) => {
     if (!dragging) return;
-    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
+    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* noop */ }
     setDragging(null);
   }, [dragging]);
+
+  // Schraffur-Muster fuer Trim-Edges -- macht Edge-Cuts visuell klar von
+  // Middle-Cuts unterscheidbar.
+  const baseBackground = (trimStart || trimEnd)
+    ? "repeating-linear-gradient(45deg, rgba(220,70,70,0.55) 0 6px, rgba(220,70,70,0.3) 6px 12px)"
+    : "rgba(220, 70, 70, 0.45)";
 
   return (
     <div style={{
@@ -156,37 +211,66 @@ function RangeBar({ range, totalPoints, onMove, onRemove, xToIdx }: RangeBarProp
       left: `${leftPct}%`,
       width: `${widthPct}%`,
       top: 0, bottom: 0,
-      background: "rgba(220, 70, 70, 0.45)",
+      background: baseBackground,
       borderTop: "1px solid #c44",
       borderBottom: "1px solid #c44",
       pointerEvents: "none",
+      overflow: "visible",
     }}>
-      {/* Start-Handle (linke Kante) */}
+      {/* Start-Handle -- nicht fuer Trim-Start (linke Kante klebt am Track-Start) */}
+      {!trimStart && (
+        <div
+          onPointerDown={startDrag("start")}
+          onPointerMove={onPointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          style={{
+            ...handleStyle,
+            left: -HANDLE_WIDTH / 2,
+            background: dragging === "start" ? "#fff" : "#f55",
+          }}
+          title={`Start: ${range.start}`}
+        />
+      )}
+
+      {/* End-Handle -- nicht fuer Trim-Ende */}
+      {!trimEnd && (
+        <div
+          onPointerDown={startDrag("end")}
+          onPointerMove={onPointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          style={{
+            ...handleStyle,
+            right: -HANDLE_WIDTH / 2,
+            background: dragging === "end" ? "#fff" : "#f55",
+          }}
+          title={`Ende: ${range.end}`}
+        />
+      )}
+
+      {/* Label im Balken zentriert. Wird ausgeblendet, wenn der Balken sehr
+          schmal ist -- dann reicht das Title-Attribut auf den Handles. */}
       <div
-        onPointerDown={startDrag("start")}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
         style={{
-          ...handleStyle,
-          left: -HANDLE_WIDTH / 2,
-          background: dragging === "start" ? "#fff" : "#f55",
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 10,
+          fontWeight: 700,
+          color: "#fff",
+          textShadow: "0 1px 2px rgba(0,0,0,0.7)",
+          pointerEvents: "none",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
         }}
-        title={`Start: ${range.start}`}
-      />
-      {/* End-Handle (rechte Kante) */}
-      <div
-        onPointerDown={startDrag("end")}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        style={{
-          ...handleStyle,
-          right: -HANDLE_WIDTH / 2,
-          background: dragging === "end" ? "#fff" : "#f55",
-        }}
-        title={`Ende: ${range.end}`}
-      />
+        title={`${label} (${range.start}..${range.end})`}
+      >
+        {label}
+      </div>
+
       {/* Entfernen-Button */}
       <button
         onClick={onRemove}

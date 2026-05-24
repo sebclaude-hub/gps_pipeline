@@ -106,6 +106,7 @@ export default function App() {
             onZoomChange={handleZoom}
             onPointPick={setActiveIdx}
             showTooltip={infoMode === "tooltip" || infoMode === "both"}
+            cutRanges={rangeApi.ranges}
           />
           <div style={togglesStyle}>
             <ToggleSwitch<ColorMode>

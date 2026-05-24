@@ -438,6 +438,12 @@ def compare_track_dem(df, dem_paths) -> Optional[Dict[str, float]]:
         "std_diff": float(np.std(valid)),
         "min_diff": float(np.min(valid)),
         "max_diff": float(np.max(valid)),
+        # 5%-Perzentil: outlier-robuste untere Grenze. Wird in api.py
+        # benutzt um den Auto-Offset so zu deckeln, dass kein "echter"
+        # Track-Punkt unter das DEM rutscht. Strikt min_diff waere zu
+        # konservativ -- ein einzelner verbuggter GPS-Punkt (z.B. -400 m)
+        # wuerde den ganzen Track unnoetig hochheben.
+        "p5_diff": float(np.percentile(valid, 5)),
         "suggested_offset": float(-np.median(valid)),
     }
 
@@ -447,17 +453,17 @@ def compare_track_dem(df, dem_paths) -> Optional[Dict[str, float]]:
     print(f"    Median:     {stats['median_diff']:+.1f} m")
     print(f"    Std-Abw.:   {stats['std_diff']:.1f} m")
     print(f"    Bereich:    {stats['min_diff']:+.1f} bis {stats['max_diff']:+.1f} m")
-    print(f"  Vorgeschlagener track_z_offset: {stats['suggested_offset']:+.1f} m")
-    # Heuristik für Warnungen:
-    #  * Großer Unterschied Mittelwert ↔ Median: Track ist offensichtlich
-    #    teilweise hoch oben (Flug, Drohne) — kein Bug, nur Info.
-    #  * Kleiner Median + hohe Std-Abw.: GPS-Höhe-Rauschen oder DEM-Probleme.
-    mean_median_gap = abs(stats["mean_diff"] - stats["median_diff"])
-    if mean_median_gap > 50:
-        print(f"  ℹ Mittelwert ({stats['mean_diff']:+.1f} m) weicht stark vom "
-              f"Median ab — Track ist offenbar teilweise weit über dem Gelände "
-              f"(Flug/Drohne?). Ggf. track_z_offset='none' setzen.")
-    elif stats["std_diff"] > 20 and abs(stats["median_diff"]) < 50:
+    # Sicherheits-Deckel: max-erlaubter Abwaerts-Shift, damit (fast) kein
+    # Punkt unter das DEM rutscht. Outlier-robust ueber das 5%-Perzentil
+    # und auf 0 begrenzt, sodass die Clamping-Logik nie ungewollt nach
+    # oben verschiebt (siehe api.py auto-Mode-Kommentar).
+    safe_floor = min(0.0, -stats["p5_diff"])
+    print(f"  Vorgeschlagener track_z_offset: {stats['suggested_offset']:+.1f} m "
+          f"(Median); sicher gedeckelt auf >= {safe_floor:+.1f} m")
+    # Heuristik nur noch fuer Info: hohe Standardabweichung deutet auf
+    # GPS-Rauschen oder schlechtes DEM. Frueher hier eine Flug-Erkennung
+    # (Mean-Median-Gap), die wurde durch das harte Clamping ueberfluessig.
+    if stats["std_diff"] > 20 and abs(stats["median_diff"]) < 50:
         print(f"  ⚠ Hohe Standardabweichung bei kleinem Median — Track passt "
               f"schlecht auf DEM. Mögliche Ursachen: GPS-Höhe stark verrauscht, "
               f"Track auf Brücken/Tunnel, DEM zu grob oder veraltet.")

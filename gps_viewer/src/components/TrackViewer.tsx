@@ -11,6 +11,7 @@ import { buildCurtainSegments, makeCurtainLayer } from "../layers/curtainLayer";
 import { makeTerrainLayer } from "../layers/terrainLayer";
 import { makeChartLayer } from "../layers/chartLayer";
 import type { LoadedChart } from "../hooks/useCharts";
+import type { CutRange } from "../hooks/useRangeSelection";
 import { computeRankPositions, plasmaColor, type Rgba } from "../utils/colorMap";
 import { formatSpeed, formatAltitude, formatTimestamp } from "../utils/formatters";
 
@@ -32,6 +33,9 @@ interface Props {
   /** Wenn true, erscheint beim Hover ein Floating-Tooltip am Cursor mit
    *  Zeit/Speed/Hoehe. Unabhaengig vom rechtsseitigen InfoPanel. */
   showTooltip?: boolean;
+  /** Cut-Ranges, die rot ueber dem Track hervorgehoben werden. Leeres
+   *  Array oder undefined -> keine Hervorhebung. */
+  cutRanges?: CutRange[];
 }
 
 function buildInitialViewState(track: TrackData): ViewState {
@@ -47,7 +51,7 @@ function buildInitialViewState(track: TrackData): ViewState {
 
 const FALLBACK: Rgba = [150, 150, 150, 180];
 
-export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, charts, showCharts, zScale, onZoomChange, onPointPick, showTooltip = false }: Props) {
+export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, charts, showCharts, zScale, onZoomChange, onPointPick, showTooltip = false, cutRanges = [] }: Props) {
   const [viewState, setViewState] = useState<ViewState>(
     () => buildInitialViewState(track)
   );
@@ -109,6 +113,27 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
     }];
   }, [track, activeIdx, rankPositions]);
 
+  // Pro Cut-Range eine zusammenhaengende Punktfolge zwischen [start, end].
+  // Wird als roter PathLayer ueber dem normalen Track gerendert, damit
+  // der Nutzer sieht, welche Track-Segmente entfernt werden.
+  const cutPaths = useMemo(() => {
+    if (cutRanges.length === 0) return [];
+    const { lon, lat, alt } = track.points;
+    const n = lon.length;
+    return cutRanges
+      .map((r) => {
+        const lo = Math.max(0, r.start);
+        const hi = Math.min(n - 1, r.end);
+        if (hi < lo) return null;
+        const path: [number, number, number][] = [];
+        for (let i = lo; i <= hi; i++) {
+          path.push([lon[i], lat[i], exagAlt(alt[i])]);
+        }
+        return { id: r.id, path };
+      })
+      .filter((x): x is { id: string; path: [number, number, number][] } => x !== null);
+  }, [cutRanges, track, exagAlt]);
+
   const layers = useMemo(() => {
     const result = [];
 
@@ -138,6 +163,24 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
         getColor: [colorMode],
       },
     }));
+
+    // Cut-Hervorhebung: rote Linien ueber dem normalen Track. Etwas dicker
+    // gezeichnet, damit man die Plasma-Farbgebung darunter nicht mit der
+    // Cut-Markierung verwechselt.
+    if (cutPaths.length > 0) {
+      result.push(new PathLayer({
+        id: "cut-paths",
+        data: cutPaths,
+        getPath: (d: any) => d.path,
+        getColor: [220, 60, 60, 230],
+        getWidth: 5,
+        widthUnits: "pixels",
+        pickable: false,
+        updateTriggers: {
+          getPath: [cutPaths],
+        },
+      }));
+    }
 
     result.push(new ScatterplotLayer({
       id: "active-point",
@@ -194,7 +237,8 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
 
     return result;
   }, [dem, curtainSegments, pathSegments, activePt, colorMode, showCurtain,
-      charts, showCharts, altBase, Z_SCALE, exagAlt, activeIdx, track, onPointPick]);
+      charts, showCharts, altBase, Z_SCALE, exagAlt, activeIdx, track, onPointPick,
+      cutPaths]);
 
   const handleViewStateChange = useCallback(({ viewState: vs }: any) => {
     setViewState(vs);

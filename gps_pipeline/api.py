@@ -92,6 +92,11 @@ def render_visualizations(
 ) -> None:
     """Erzeugt die Standard-Visualisierungen für einen Schema-C-Track.
 
+    **Legacy-Pfad** (Plotly-HTML). Fuer die interaktive React-Viewer-Anzeige
+    stattdessen ``export_for_viewer`` benutzen -- die HTML-Outputs hier
+    werden bei groessen Tracks/DEMs schwergewichtig und sind primaer noch
+    als Fallback und fuer einfache Vergleichs-Snapshots gedacht.
+
     Parameters
     ----------
     df_c : pd.DataFrame
@@ -136,16 +141,33 @@ def render_visualizations(
                 print("Höhen-Offset: automatische Diagnose...")
                 stats = compare_track_dem(df_c, dem_paths)
                 if stats:
-                    # Heuristik: wenn der Mittelwert weit vom Median abweicht,
-                    # ist es ein Flug-/Drohnen-Track. Median-Offset wäre dann
-                    # irreführend — auf 0 zurückfallen.
-                    mean_median_gap = abs(stats["mean_diff"] - stats["median_diff"])
-                    if mean_median_gap > 50:
-                        track_z_offset = 0.0
-                        print(f"  -> track_z_offset = 0 m (Flug erkannt -- "
-                              f"automatischer Median-Offset waere irreführend)")
+                    # Sicherer Auto-Offset, zwei Regeln:
+                    #
+                    # 1. Outlier-robust: 5%-Perzentil statt strikt min().
+                    #    Ein einzelner GPS-verbuggter Punkt soll nicht den
+                    #    gesamten Track unnoetig hochheben.
+                    #
+                    # 2. Asymmetrisch: das Clamping darf nur Abwaerts-Shifts
+                    #    reduzieren, niemals einen NEUEN Aufwaerts-Shift
+                    #    erzeugen. Ein sauberer MSL-Bodentrack hat z.B.
+                    #    Median 0, P5 ≈ -2 (GPS-Rauschen). Ohne diese Regel
+                    #    wuerden wir ihn um 2 m anheben, obwohl er keinen
+                    #    Offset braucht.
+                    #
+                    # Heisst: safe_floor wird auf 0 gedeckelt, falls positiv.
+                    # Wenn der Median (raw) selbst positiv ist -- der Track
+                    # liegt im Schnitt unter DEM (Kalibrierung noetig) --
+                    # wird er weiterhin angewendet, das Clamping greift dort
+                    # gar nicht erst.
+                    raw = stats["suggested_offset"]
+                    safe_floor = min(0.0, -stats["p5_diff"])
+                    track_z_offset = max(raw, safe_floor)
+                    if track_z_offset > raw + 0.5:
+                        print(f"  -> track_z_offset = {track_z_offset:+.1f} m "
+                              f"(Median-Vorschlag {raw:+.1f} m wurde auf "
+                              f"{safe_floor:+.1f} m gedeckelt, damit "
+                              f"praktisch kein Punkt unter das DEM rutscht)")
                     else:
-                        track_z_offset = stats["suggested_offset"]
                         print(f"  -> track_z_offset = {track_z_offset:+.1f} m")
             elif isinstance(mode, (int, float)):
                 track_z_offset = float(mode)
@@ -249,8 +271,11 @@ def export_for_viewer(
         elif mode == "auto":
             stats = compare_track_dem(df_c, dem_paths)
             if stats:
-                mean_median_gap = abs(stats["mean_diff"] - stats["median_diff"])
-                track_z_offset = 0.0 if mean_median_gap > 50 else stats["suggested_offset"]
+                # Siehe ausfuehrlichen Kommentar in render_visualizations:
+                # outlier-robust via P5, asymmetrisch ueber min(0, ...).
+                raw = stats["suggested_offset"]
+                safe_floor = min(0.0, -stats["p5_diff"])
+                track_z_offset = max(raw, safe_floor)
         elif isinstance(mode, (int, float)):
             track_z_offset = float(mode)
 
