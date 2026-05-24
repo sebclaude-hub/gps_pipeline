@@ -5,6 +5,39 @@ permanente Referenz liegen in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
+## Schritt 6c — Trim-Re-Import-CLI (25. Mai 2026)
+
+Round-Trip-Loch geschlossen: bisher konnten Cuts im Viewer definiert und
+als `ranges.json` exportiert werden, aber das Ergebnis war nicht zurück
+im Viewer sichtbar. Jetzt:
+
+```powershell
+python -m gps_pipeline.apply_cuts \
+    --feather output/test.feather \
+    --ranges  output/ranges.json \
+    --output  output_trimmed/ \
+    --dem     data/linked_sued.tif \
+    --charts  data/
+python view.py output_trimmed
+```
+
+* Neuer Modulpfad `gps_pipeline/apply_cuts.py` mit CLI (`python -m
+  gps_pipeline.apply_cuts ...`) und Library-Funktion `apply_cuts(...)`.
+* Validiert ranges.json gegen die Feather-Punktanzahl (warnt bei
+  Off-by-One).
+* Erzeugt ein vollständiges Viewer-Output mit track.json, DEM-LODs und
+  charts.json — bereit für `view.py`.
+* Satelliten-Daten werden **nicht** mitgetrimmt, weil das Schema-A
+  (NMEA-Rohsätze inkl. GSV) nicht im Feather liegt. Für satellitenfähige
+  getrimmte Tracks muss man später vom Quell-NMEA neu durchprozessieren
+  (separater Workflow, derzeit nicht implementiert).
+* `gps_pipeline/__init__.py` importiert `apply_cuts` bewusst nicht, weil
+  das beim `python -m gps_pipeline.apply_cuts`-Aufruf eine
+  RuntimeWarning durch Doppel-Import auslöst. Wer es als Library nutzt:
+  `from gps_pipeline.apply_cuts import apply_cuts`.
+
+---
+
 ## Schritt 6b — Interaktiver DEM-Offset-Slider (25. Mai 2026)
 
 ### Erkenntnis vorab — was Schritt 6a tatsächlich tat (und was nicht)

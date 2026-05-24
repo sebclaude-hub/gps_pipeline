@@ -16,6 +16,11 @@ from .processing.trim import CutRange, trim_track, load_cut_ranges
 from .processing.synthetic import (
     create_synthetic_track, save_synthetic, SyntheticMeta,
 )
+# apply_cuts wird NICHT hier importiert, weil das Modul direkt als
+# ``python -m gps_pipeline.apply_cuts`` aufgerufen wird. Ein doppelter
+# Import (hier + als __main__) loest eine RuntimeWarning aus. Wer
+# apply_cuts als Library-Funktion nutzen will:
+#     from gps_pipeline.apply_cuts import apply_cuts
 
 __all__ = [
     "process_nmea",

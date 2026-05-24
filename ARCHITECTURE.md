@@ -319,20 +319,40 @@ export_for_viewer(df_c, Path('output'), name_prefix='test',
 python view.py output
 ```
 
-### Track trimmen
+### Track trimmen (Round-Trip mit dem React-Viewer)
 
 ```powershell
 # 1. Im React-Viewer Cuts definieren, "Export" klickt -> ranges.json
-# 2. Trimming anwenden
-python -c "
+#    (Browser-Download, manuell nach output/ verschieben oder
+#    direkt referenzieren wo der Browser sie ablegt)
+# 2. CLI ausfuehren
+python -m gps_pipeline.apply_cuts `
+    --feather output/test.feather `
+    --ranges  output/ranges.json `
+    --output  output_trimmed/ `
+    --dem     data/linked_sued.tif `
+    --charts  data/
+# 3. Im Viewer betrachten
+python view.py output_trimmed
+```
+
+Das CLI laedt das Schema-C-Feather, wendet die Cuts an und erzeugt ein
+vollstaendiges Viewer-Output-Verzeichnis (track.json + DEM-LODs + charts).
+Satelliten-Daten werden **nicht** mitgetrimmt -- der Output enthaelt
+keine satellites.json, weil Schema A (NMEA-Rohsaetze) nicht im Feather
+liegt.
+
+Programmatisch:
+```python
 from pathlib import Path
-from gps_pipeline import load_cut_ranges, trim_track
-from gps_pipeline.dataframe_io.feather import load_df, save_df
-df = load_df('output/test.feather')
-cuts = load_cut_ranges(Path('ranges.json'))
-trimmed = trim_track(df, cuts)
-save_df(trimmed, 'output/test_trimmed.feather')
-"
+from gps_pipeline.apply_cuts import apply_cuts
+apply_cuts(
+    feather_path=Path("output/test.feather"),
+    ranges_path=Path("output/ranges.json"),
+    output_dir=Path("output_trimmed/"),
+    dem_paths=[Path("data/linked_sued.tif")],
+    chart_dir=Path("data/"),
+)
 ```
 
 ### Synthetic-Track (Pausen "wegtricksen")
