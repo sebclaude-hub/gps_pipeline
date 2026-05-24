@@ -25,6 +25,22 @@ export interface TrackMeta {
    *  Aus der Python-seitigen Auto-Diagnose. Optional fuer Backwaerts-
    *  kompatibilitaet mit aelteren track.json-Dateien. */
   suggested_z_offset_m?: number;
+  /** Markiert diesen Track als bearbeitete Version eines anderen.
+   *  Wird als Banner ueber dem Viewer angezeigt. ``null``/fehlend = Original. */
+  derivation?: TrackDerivation | null;
+}
+
+/** Beschreibt, wie ein bearbeiteter Track aus einem Originaltrack entstanden
+ *  ist. Wird vom React-Viewer als Warnhinweis-Banner gerendert, damit
+ *  klar ist, dass die angezeigten Daten nicht 1:1 die Originalmessung sind. */
+export interface TrackDerivation {
+  /** Welche Art der Bearbeitung: derzeit "trimmed" oder "synthetic". */
+  type: "trimmed" | "synthetic";
+  /** Name des Ursprungs-Tracks (Feather-Basename). */
+  source_name: string;
+  /** Zusatzfelder je nach Typ -- z.B. n_cuts/n_points_removed bei trimmed,
+   *  warning bei synthetic. Frei, vom Viewer weitgehend generisch behandelt. */
+  [key: string]: unknown;
 }
 
 export interface QuantileBreaks {

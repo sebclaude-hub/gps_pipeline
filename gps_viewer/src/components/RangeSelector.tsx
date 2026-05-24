@@ -96,20 +96,20 @@ export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "ranges.json";
+    a.download = "cut_ranges.json";
     a.click();
     URL.revokeObjectURL(url);
     setExportHint(true);
   }, [api.ranges, totalPoints]);
 
-  // Der vorgeschlagene apply_cuts-Befehl mit Platzhaltern, die der
-  // Nutzer noch ausfuellen muss. Wir kennen den Feather-Pfad nicht (das
-  // weiss nur der Backend-Export-Schritt), deshalb generisch.
+  // Der vorgeschlagene apply_cuts-Befehl. Die heruntergeladene
+  // cut_ranges.json soll in data/ wandern -- dann findet apply_cuts
+  // sie automatisch und --ranges entfaellt.
   const cliCmd = [
+    '# 1. cut_ranges.json aus Downloads nach data/ verschieben',
     '$env:PYTHONUTF8 = "1"',
     'python -m gps_pipeline.apply_cuts `',
     '    --feather output/<dein_track>.feather `',
-    '    --ranges  <Downloads>/ranges.json `',
     '    --output  output_trimmed/ `',
     '    --dem     data/<dein_dem>.tif `',
     '    --charts  data/',
@@ -138,7 +138,7 @@ export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
       {exportHint && (
         <div style={hintBoxStyle}>
           <div style={hintHeaderStyle}>
-            <span>ranges.json heruntergeladen. Naechster Schritt:</span>
+            <span>cut_ranges.json heruntergeladen. Naechster Schritt:</span>
             <button
               onClick={() => setExportHint(false)}
               style={hintCloseStyle}
@@ -151,7 +151,7 @@ export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
               In Zwischenablage kopieren
             </button>
             <span style={{ color: "#888", fontSize: 10 }}>
-              Vorher Platzhalter ersetzen (Track-Name, Download-Pfad, DEM)
+              Vorher Platzhalter ersetzen (Track-Name, DEM)
             </span>
           </div>
         </div>

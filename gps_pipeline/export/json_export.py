@@ -110,6 +110,7 @@ def export_track_json(
     name_prefix: str = "track",
     n_quantiles: int = DEFAULT_QUANTILES,
     suggested_z_offset: float = 0.0,
+    derivation: Optional[dict] = None,
 ) -> None:
     """Serialisiert einen Schema-C-DataFrame nach track.json.
 
@@ -130,6 +131,10 @@ def export_track_json(
         aber NICHT in ``points.alt`` oder ``points.above_terrain`` vorgebacken
         -- der Viewer wendet ihn live auf die Darstellung an, sodass der
         Nutzer interaktiv nachregeln kann.
+    derivation : dict, optional
+        Markiert diesen Track als bearbeitete Version eines anderen.
+        Wird in ``meta.derivation`` exportiert und vom React-Viewer als
+        Warnhinweis-Banner angezeigt.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -194,6 +199,9 @@ def export_track_json(
             # Vorschlag fuer den Offset-Slider im Viewer. Nicht in alt/above
             # vorgebacken -- der Viewer wendet es als initialen Slider-Wert an.
             "suggested_z_offset_m": round(float(suggested_z_offset), 2),
+            # Markiert den Track als bearbeitete Version (Trim, Synthetic, ...).
+            # Wird vom Viewer als Banner angezeigt. None/leer = Originaltrack.
+            "derivation": derivation,
         },
         "quantile_breaks": {
             "speed_kmh": breaks,

@@ -218,6 +218,7 @@ def export_for_viewer(
     source_type: str = "nmea",
     z_offset_mode=None,
     charts: Optional[list[ChartOverlay]] = None,
+    derivation: Optional[dict] = None,
 ) -> Path:
     """Exportiert Track + DEM als statische JSON-Dateien für den React-Viewer.
 
@@ -247,6 +248,11 @@ def export_for_viewer(
         Karten-Overlays (PNG + georeferenzierte Eckkoordinaten), die ueber
         das Terrain gedrapt im Viewer angezeigt werden. Werden ueber
         ``find_charts(data_dir)`` aus dem Daten-Ordner gesammelt.
+    derivation : dict, optional
+        Markiert diesen Track als bearbeitete Version eines anderen.
+        Wird im Viewer als Warnhinweis-Banner angezeigt. Erwartete
+        Struktur z.B. ``{"type": "trimmed", "source_name": "...", "n_cuts": ...}``
+        oder ``{"type": "synthetic", "source_name": "...", "warning": "..."}``.
 
     Returns
     -------
@@ -285,7 +291,8 @@ def export_for_viewer(
     # 1. track.json -- mit suggested_z_offset als Slider-Default fuer den Viewer
     track_path = output_dir / "track.json"
     export_track_json(df_c, track_path, name_prefix=name_prefix,
-                      suggested_z_offset=track_z_offset)
+                      suggested_z_offset=track_z_offset,
+                      derivation=derivation)
 
     # Patch: source_type in Metadaten korrigieren
     import json as _json2

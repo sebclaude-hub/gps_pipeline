@@ -107,14 +107,13 @@ python -m gps_pipeline
 
 ```powershell
 # 1. Im React-Viewer Cuts definieren (+ Cut, Reset, Export)
-#    -> Browser lädt ranges.json herunter
-#    -> nach output/ verschieben oder Pfad zur Download-Datei nutzen
+#    -> Browser lädt cut_ranges.json herunter (in Downloads)
+#    -> Datei nach data/ verschieben (selber Ordner wie deine Quelldaten)
 
-# 2. Cuts auf den Feather-Track anwenden
+# 2. Cuts anwenden (--ranges entfaellt, Default ist data/cut_ranges.json)
 $env:PYTHONUTF8 = "1"
 python -m gps_pipeline.apply_cuts `
     --feather output/meine_tour.feather `
-    --ranges  output/ranges.json `
     --output  output_trimmed/ `
     --dem     data/linked_sued.tif `
     --charts  data/
@@ -124,13 +123,18 @@ $env:PYTHONUTF8 = "1"
 python view.py output_trimmed
 ```
 
+Im Viewer erscheint ein **Warnhinweis-Banner** ("Getrimmter Track —
+Original 'meine_tour', N Cuts angewendet, M Punkte entfernt"), damit
+unmissverständlich klar bleibt, dass die Ansicht eine bearbeitete
+Version ist und nicht die ursprünglichen Messungen.
+
 Alle Flags von `apply_cuts`:
 
 | Flag | Bedeutung | Pflicht |
 |---|---|---|
 | `--feather PFAD` | Bestehender Schema-C-Feather aus `output/` | ja |
-| `--ranges PFAD` | `ranges.json` aus dem Viewer-Export | ja |
 | `--output DIR` | Ziel-Verzeichnis für den neuen Viewer-Output | ja |
+| `--ranges PFAD` | `cut_ranges.json` (Default: `data/cut_ranges.json`) | nein |
 | `--dem PFAD` | DEM-GeoTIFF; mehrfach angebbar für Multi-Tile | nein |
 | `--charts DIR` | Verzeichnis mit PNG+TXT-Karten-Overlays | nein |
 | `--source-type` | `nmea` \| `gpx` \| `kml` (Default `nmea`) | nein |

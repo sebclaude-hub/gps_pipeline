@@ -13,6 +13,7 @@ import { InfoPanel } from "./components/InfoPanel";
 import { InfoModeButtons, type InfoMode } from "./components/InfoModeButtons";
 import { OffsetSlider } from "./components/OffsetSlider";
 import { RangeSelector } from "./components/RangeSelector";
+import { DerivationBanner } from "./components/DerivationBanner";
 import { useRangeSelection } from "./hooks/useRangeSelection";
 import type { ColorMode } from "./types";
 
@@ -105,6 +106,13 @@ export default function App() {
 
       <div style={contentStyle}>
         <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
+          {/* Warnhinweis-Banner, falls dieser Track eine bearbeitete
+              Version eines anderen ist (Trim, Synthetic, ...). Liegt
+              ueber dem deck.gl-Canvas, blockiert aber dank
+              pointerEvents:none keine Maus-Interaktion. */}
+          {meta.derivation && (
+            <DerivationBanner derivation={meta.derivation} />
+          )}
           <TrackViewer
             track={track}
             dem={demLod}

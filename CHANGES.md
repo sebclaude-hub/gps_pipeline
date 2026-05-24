@@ -5,6 +5,59 @@ permanente Referenz liegen in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
+## Schritt 6f — cut_ranges.json + Derivation-Banner (25. Mai 2026)
+
+### Dateiname + Default-Pfad
+
+* Viewer-Export: `ranges.json` → **`cut_ranges.json`** (eindeutiger).
+* Vorgeschlagener Speicherort: **`data/`** (wo alle Eingabedaten leben),
+  nicht der Browser-Downloads-Ordner.
+* `apply_cuts`: `--ranges` ist jetzt **optional**; ohne Angabe wird
+  `data/cut_ranges.json` automatisch gesucht. Fehlt sie, gibt es einen
+  klaren Fehler. CLI-Aufruf für den Standardfall:
+
+  ```powershell
+  python -m gps_pipeline.apply_cuts `
+      --feather output/<track>.feather `
+      --output  output_trimmed/ `
+      --dem     data/<dem>.tif `
+      --charts  data/
+  ```
+
+* Export-Hint im Viewer aktualisiert: zeigt diesen verkürzten Befehl
+  und den Hinweis "cut_ranges.json aus Downloads nach data/
+  verschieben".
+
+### Derivation-Banner — Wahrheit über die Daten
+
+Neuer Pflicht-Warnhinweis im React-Viewer für **bearbeitete Tracks**.
+Ein bernsteinfarbener Streifen oben am Viewer-Canvas zeigt, dass die
+Ansicht NICHT die originalen Messungen ist:
+
+* **Trim**: "Getrimmter Track — Original 'XYZ', N Cuts angewendet, M
+  Punkte entfernt. Satellitendaten dieser Ansicht sind nicht vorhanden,
+  da Schema A beim Trimmen nicht übernommen wird."
+* **Synthetic**: (bereits vorbereitet) "Synthetischer Track — Original
+  'XYZ', Zeitstempel modifiziert. Satellitendaten sind nicht gültig,
+  weil die Zeitachse gestaucht wurde."
+
+Backend-Seite: `export_for_viewer` und `export_track_json` akzeptieren
+ein `derivation`-dict, das in `track.json::meta.derivation` landet.
+`apply_cuts` befüllt es mit `{type: "trimmed", source_name, n_cuts,
+n_points_removed, n_points_before, n_points_after}`.
+
+Frontend-Seite: neue Komponente `DerivationBanner`, gerendert in
+`App.tsx` wenn `meta.derivation` vorhanden ist. Bewusst NICHT
+schließbar — der Hinweis soll auch nach einem geteilten Link sichtbar
+bleiben. `pointerEvents: none` damit der Banner Maus-Interaktion mit
+dem Viewer nicht blockiert.
+
+Erweiterbarkeit: neue Derivation-Typen ("merged", "downsampled", …)
+können einfach hinzugefügt werden — der Banner hat einen
+Fallback-Pfad, der unbekannte Typen generisch rendert.
+
+---
+
 ## Schritt 6e — Slider-Präzision + Export-Hint (25. Mai 2026)
 
 ### OffsetSlider: schwer aimbar bei nicht-runden Zielwerten
