@@ -89,6 +89,7 @@ export_for_viewer(
 "
 
 # Viewer starten -- öffnet http://localhost:8765
+$env:PYTHONUTF8 = "1"
 python view.py output
 ```
 
@@ -96,6 +97,7 @@ Alternativ der "naive" Modus, der einfach alles aus `data/` verarbeitet
 und zusätzlich HTML-Dateien erzeugt (Legacy-Plotly-Pfad):
 
 ```powershell
+$env:PYTHONUTF8 = "1"
 python -m gps_pipeline
 ```
 
@@ -118,6 +120,7 @@ python -m gps_pipeline.apply_cuts `
     --charts  data/
 
 # 3. Getrimmten Track im Viewer ansehen
+$env:PYTHONUTF8 = "1"
 python view.py output_trimmed
 ```
 

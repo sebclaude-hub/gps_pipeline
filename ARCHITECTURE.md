@@ -262,12 +262,18 @@ Kartesischen leicht asymmetrisch.
 
 ### CLI
 
-```bash
+```powershell
+$env:PYTHONUTF8 = "1"
 python -m gps_pipeline
 ```
 
 Erwartet `data/`-Ordner mit `.txt` (NMEA), `.gpx`, `.kml`, optional
 `.tif` (DEM) und `.png`+`.txt`-Paare (Karten). Schreibt nach `output/`.
+
+Hinweis: Auf Windows muss `PYTHONUTF8=1` gesetzt sein, sonst crashen
+manche `print()`-Aufrufe der Pipeline mit `UnicodeEncodeError` (siehe
+[CLAUDE_NOTES.md](CLAUDE_NOTES.md)). Vor *jedem* Python-Aufruf in einer
+neuen Shell.
 
 ### Als Bibliothek
 
@@ -316,6 +322,7 @@ charts = find_charts(Path('data'))
 export_for_viewer(df_c, Path('output'), name_prefix='test',
                   df_raw=df_raw, charts=charts)
 "
+$env:PYTHONUTF8 = "1"
 python view.py output
 ```
 
@@ -326,6 +333,7 @@ python view.py output
 #    (Browser-Download, manuell nach output/ verschieben oder
 #    direkt referenzieren wo der Browser sie ablegt)
 # 2. CLI ausfuehren
+$env:PYTHONUTF8 = "1"
 python -m gps_pipeline.apply_cuts `
     --feather output/test.feather `
     --ranges  output/ranges.json `
@@ -333,6 +341,7 @@ python -m gps_pipeline.apply_cuts `
     --dem     data/linked_sued.tif `
     --charts  data/
 # 3. Im Viewer betrachten
+$env:PYTHONUTF8 = "1"
 python view.py output_trimmed
 ```
 
@@ -358,6 +367,7 @@ apply_cuts(
 ### Synthetic-Track (Pausen "wegtricksen")
 
 ```powershell
+$env:PYTHONUTF8 = "1"
 python -c "
 from pathlib import Path
 from gps_pipeline import (
