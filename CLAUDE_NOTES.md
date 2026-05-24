@@ -1,8 +1,177 @@
 # Arbeitsnotizen für Claude — GPS-Viewer-Projekt
 
-**Zuletzt aktualisiert:** 2026-05-24
+**Zuletzt aktualisiert:** 2026-05-25 abend
 **Aktueller Branch:** master
+**Letzter Commit:** `3af5d33` ("feat: cut_ranges.json in data/ + Derivation-Banner")
 **GitHub:** https://github.com/sebclaude-hub/gps_pipeline
+
+---
+
+## ⏸ SESSION-RESUMPTION — was am 26. Mai ansteht
+
+**Wir haben einen ausführlich diskutierten Refactor-Plan, aber NICHTS
+davon angefangen zu implementieren.** Der User musste in die Nacht,
+ich soll den Plan so abspeichern dass die nächste Session ihn nahtlos
+fortsetzt.
+
+### Diskutierter Stand vor der Pause
+
+Die letzten Iterationen (Schritt 6a-f) sind alle gepusht. Was wir am
+25. Mai abend besprochen haben, ist eine größere Architektur-Änderung
+am Cut/Trim/Synthetic-Workflow. **Es ist NICHTS davon im Code** — nur
+der Plan steht hier.
+
+### Drei einvernehmlich getroffene Entscheidungen
+
+1. **Satelliten in Synthetic-Mode behalten** — nicht mehr wegwerfen.
+   GSV-Bursts werden analog zu den Track-Timestamps mit-verschoben.
+   Der Banner kennzeichnet das.
+
+2. **Banner auch im Gap-Mode**, aber mit Info-Severity:
+   - Nur Trim (Rand) → kein Banner
+   - Gap (Mitte ohne Zeit-Shift) → ⓘ blau-grau: "Lücke(n) im Track,
+     Geschwindigkeit dort unzuverlässig"
+   - Synthetic (Mitte mit Zeit-Shift) → ⚠ rot: "Zeitstempel verändert,
+     Sats unter verschobenem Zeitstempel"
+   - Bei Mischung gewinnt strengere Severity (Synthetic > Gap > nichts)
+
+3. **Sidecar-Schnittanweisung statt apply_cuts-CLI:**
+   - `data/<basename>.cuts.json` neben der Quelldatei
+   - `__main__.py` erkennt die Sidecar-Datei nach `process_*` und
+     wendet Cuts an
+   - `apply_cuts.py` CLI **wird ersatzlos entfernt**
+   - Output-Name bleibt gleich (KEIN `_trimmed`-Suffix) — die
+     `cuts.json` ist Teil der Quelldaten, der Track unter dem normalen
+     Namen ist eben der getrimmte
+   - Cuts deaktivieren: cuts.json umbenennen
+     (`<basename>.cuts.json.disabled`) → **muss in die README**
+
+### Format der `<basename>.cuts.json`
+
+```json
+{
+  "source": "2026-05-02_16-54-51_rx_log.txt",
+  "n_points_reference": 24138,
+  "cut_ranges": [
+    {"start": 0,     "end": 49,    "mode": "trim"},
+    {"start": 200,   "end": 350,   "mode": "synthetic"},
+    {"start": 600,   "end": 700,   "mode": "gap"},
+    {"start": 24100, "end": 24137, "mode": "trim"}
+  ],
+  "created_at": "2026-05-25T17:30:00Z"
+}
+```
+
+- Mode `"trim"` wird vom System für Edge-Cuts (start=0 oder end=N-1)
+  **immer forciert**, egal was der Viewer schickt
+- Middle-Cuts kriegen `"synthetic"` oder `"gap"` je nach **globalem
+  Toggle zum Export-Zeitpunkt** im Viewer
+- User möchte **keinen Mischbetrieb** in der UI (ein globaler Toggle
+  für ALLE Middle-Cuts), aber das **Datenformat soll per-Cut-Mode**
+  stützen für spätere Flexibilität
+
+### Geplante Implementierungs-Reihenfolge
+
+1. **Format & Sidecar-Detection**
+   - `gps_pipeline/parsing/cut_config.py` für Lesen/Validieren der `.cuts.json`
+   - `meta.source_file` ins JSON-Export (Basename der Quelldatei)
+
+2. **Apply-Logik**
+   - Neues Modul `gps_pipeline/processing/apply_cut_config.py`
+   - Funktion: `apply_cut_config(df_raw, df_c, config) → (df_raw_new, df_c_new, derivation)`
+   - Behandelt alle drei Modi auf beiden DataFrames
+   - **Synthetic**: time-shift wie in `create_synthetic_track`, aber
+     JETZT auch df_raw mit-shiften (GSV-Bursts)
+   - **Gap**: Zeilen entfernen, Timestamps unverändert
+   - **Trim**: Zeilen entfernen, Timestamps unverändert
+   - **Edge-Detection**: start==0 oder end==N-1 → forciert Mode "trim"
+   - **Derivation-Output**:
+     - Pure trim only → `None`
+     - Any gap → `{type: "gap", source_name, n_gap_cuts, ...}`
+     - Any synthetic (auch in Mischung) → `{type: "synthetic",
+       source_name, n_synthetic_cuts, total_time_shift_s, warning}`
+
+3. **Pipeline-Integration**
+   - `__main__.py`: nach `process_nmea/gpx/kml` nach
+     `<basename>.cuts.json` suchen, `apply_cut_config` aufrufen,
+     Ergebnis an Export weitergeben
+   - `api.export_for_viewer`: `derivation`-Param schon vorhanden
+     (Schritt 6f), kann weiter genutzt werden
+   - Output-Naming: gleicher Name wie ohne Cuts (NICHT `_trimmed`)
+
+4. **`apply_cuts.py` weg + README-Update**
+   - Datei `gps_pipeline/apply_cuts.py` löschen
+   - README Workflow 2 komplett umschreiben: nur noch Viewer-Export +
+     Datei nach `data/` verschieben + erneutes `python -m gps_pipeline`
+   - **Hinweis "Cuts deaktivieren durch Umbenennen"** in README aufnehmen
+   - `gps_pipeline/__init__.py` aufräumen (apply_cuts-Verweise weg)
+   - CHANGES.md: Schritt 7 mit der ganzen Architektur-Reform
+
+5. **Frontend**
+   - `useRangeSelection`: jeder Cut bekommt
+     `mode: "trim" | "gap" | "synthetic"`
+   - Edge-Auto-Detection im Hook: start=0 / end=N-1 → mode="trim",
+     egal was global gesetzt ist
+   - Globaler Toggle "Middle-Mode" in RangeSelector:
+     Pill-Switch "Lücke / Zeit verschieben" — wirkt auf alle Middle-Cuts
+   - Farbcodierung der Cut-Bars:
+     - **Trim** (rot mit Schraffur, wie jetzt)
+     - **Gap** (grün)
+     - **Synthetic** (blau)
+   - Bei Edge-Cuts bleibt Schraffur, Farbe wie für Mode (also blau-
+     schraffiert wenn Sync-Mode aktiv und Cut zufällig auch Edge ist —
+     aber Edge erzwingt Trim, also rot-schraffiert)
+   - Export-Button schreibt `<source_basename>.cuts.json` Format wie oben
+
+6. **Banner-Severity**
+   - `DerivationBanner`: drei Stile (kein / info / warn)
+   - `describe()`-Funktion ausbauen für Gap-Variante
+   - Bei mehreren Mode-Vorkommen die strengere wählen
+
+7. **End-to-End-Test**
+   - Beispiel-Track mit Trim + Gap + Synthetic Cuts
+   - Verifizieren: Sats werden im Synthetic-Mode mit-verschoben
+   - Verifizieren: Banner erscheint korrekt bei jeder Kombination
+   - Verifizieren: VTG-Speed bei Gap-Lücken realistisch angezeigt
+
+**Geschätzte Dauer: 3–4 Stunden.** Alles in EINEM Commit am Ende.
+
+### Wichtige Subtilitäten zum Mitnehmen
+
+- **Mode "trim" wird vom System forciert für Edge-Cuts**, egal was der
+  User-Toggle sagt. Der Frontend-Toggle gilt nur für Middle-Cuts.
+- **Banner zeigt strengste Mode-Severity** wenn mehrere vorhanden.
+- **Schema-A-Filtering für df_raw**: über Timestamps, nicht über Index.
+  Schema-A hat eine Zeile pro NMEA-Satz, Schema-C eine pro Timestamp.
+  Mapping: für jeden Cut in df_c (Schema-C-Index lo..hi) die
+  Timestamp-Range nehmen (`ts[lo]..ts[hi]`) und df_raw-Zeilen in diesem
+  Zeit-Intervall droppen. Bei Synthetic: alle df_raw-Zeilen mit
+  `ts > hi_ts` kriegen denselben Time-Shift wie das df_c.
+- **VTG bei Gap-Lücken**: erste `speed_kmh` nach der Lücke verwenden
+  (statt `dist/Δt`) für die Geschwindigkeitsanzeige in der Lücke.
+  Implementation-Detail eher im Viewer-Render-Code als im Backend.
+- **`create_synthetic_track` und `save_synthetic`** aus Schritt 5c
+  werden vermutlich obsolet — die Logik wandert nach
+  `apply_cut_config.py`. Vorher prüfen ob noch jemand sie importiert.
+
+### Was BLEIBT (Schritte 5-6f sind durch)
+
+Alles bis und inklusive Commit `3af5d33` ist fertig und gepusht:
+- Schritt 5 (Charts, Cut-UI, Trim-CLI apply_cuts, Synthetic-Backend,
+  klickbarer Track, Tooltip)
+- Schritt 6a-f (Cut-Polish, DEM-Offset, Slider, Export-Hint,
+  cut_ranges.json + Derivation-Banner v1)
+
+Der jetzige Refactor ersetzt im Wesentlichen die Architektur aus
+Schritt 6c (apply_cuts-CLI) und 6f (cut_ranges.json + Banner).
+
+### Start morgen
+
+Wenn der User Tag-2 wieder reinkommt:
+1. Diese Notiz lesen (wir sind hier)
+2. Bestätigen lassen, dass Plan noch gilt
+3. Bei Schritt 1 (`parsing/cut_config.py`) starten
+4. Schritt für Schritt durch, eine Commit am Ende
 
 ---
 
