@@ -5,6 +5,39 @@ permanente Referenz liegen in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
+## Schritt 6d — Cut-Drag-Bug bei Trim-Edge-Übergang (25. Mai 2026)
+
+**Symptom:** Beim Ziehen eines Cut-Handles bis zur Track-Kante (also
+beim Übergang zu "Trim Start" / "Trim Ende") wurde der verbleibende
+Handle anschließend "klebrig": schon das Hovern darüber ließ den Cut
+auf Länge 0 zusammenschnurren. Erst Wegziehen und Hineinziehen brachte
+ihn zurück.
+
+**Ursache:** Pointer-Events hingen an den Handle-DOM-Knoten. Sobald
+ein Cut zur Trim-Edge wurde (`trimStart === true`), entfernte React
+den entsprechenden Handle-Div aus dem DOM. Damit ging die
+Pointer-Capture verloren und das `pointerup` kam nie an — der lokale
+`dragging`-State im `RangeBar` blieb auf `"start"` stehen. Der nächste
+Pointer-Move-Event über dem verbleibenden Handle (auf der anderen
+Seite) triggerte dessen `onPointerMove`-Handler; der sah `dragging ===
+"start"` und behandelte das wie eine fortgesetzte Drag-Bewegung mit der
+X-Position des falschen Handles. Mit der Overlap-Prevention im Hook
+kollabierte der Cut zur Breite 0.
+
+**Fix:** Pointer-Move/-Up auf **Window-Level** binden via `useEffect`,
+mit dem `dragging`-State als Effekt-Dependency. Handles haben nur noch
+`onPointerDown`. Vorteile:
+
+- Drag überlebt das Verschwinden des Source-Handles aus dem DOM
+- Pointer-Up wird immer empfangen, egal wo der Cursor losgelassen wird
+- Keine `setPointerCapture`-Klimmzüge mehr nötig
+
+Refs (`rangeRef`, `onMoveRef`, `xToIdxRef`) spiegeln aktuelle Props in
+den Window-Handler, damit der Listener nicht bei jedem State-Update
+neu gebunden werden muss.
+
+---
+
 ## Schritt 6c — Trim-Re-Import-CLI (25. Mai 2026)
 
 Round-Trip-Loch geschlossen: bisher konnten Cuts im Viewer definiert und

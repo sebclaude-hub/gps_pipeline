@@ -15,7 +15,7 @@
  *   * "Reset" loescht alle Cuts; "Export" laedt ranges.json herunter.
  */
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CutRange, RangeSelectionApi } from "../hooks/useRangeSelection";
 
 interface Props {
@@ -179,24 +179,49 @@ function RangeBar({
   const rightPct = (range.end / (totalPoints - 1)) * 100;
   const widthPct = Math.max(0.2, rightPct - leftPct);
 
+  // Aktuelle Range in Refs spiegeln, damit der Window-PointerMove-Handler
+  // immer die jeweils neuesten Grenzen sieht, ohne dass sich die
+  // useEffect-Listener bei jedem State-Update neu binden.
+  const rangeRef = useRef(range);
+  rangeRef.current = range;
+  const onMoveRef = useRef(onMove);
+  onMoveRef.current = onMove;
+  const xToIdxRef = useRef(xToIdx);
+  xToIdxRef.current = xToIdx;
+
   const startDrag = useCallback((side: "start" | "end") => (e: React.PointerEvent) => {
+    // Kein setPointerCapture mehr -- die Window-Listener kuemmern sich um
+    // alle Moves/Ups bis zum Loslassen. Damit ist der Drag robust gegen
+    // Verschwinden des Handle-DOM-Knotens, das passiert wenn der Cut
+    // gerade zur Trim-Edge wird.
     e.preventDefault();
     e.stopPropagation();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
     setDragging(side);
   }, []);
 
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
+  // Window-Level-Listener fuer die Drag-Bewegung. Vorher hingen sie am
+  // Handle selbst -- das war buggy, weil der Handle aus dem DOM
+  // verschwindet, sobald der Cut zur Trim-Edge wird. Pointer-Up kam dann
+  // nie an, die nachfolgenden Move-Events der ANDEREN Seite des Cuts
+  // trafen den verlassenen Drag-State und liessen den Cut auf 0
+  // zusammenschnurren.
+  useEffect(() => {
     if (!dragging) return;
-    const idx = xToIdx(e.clientX);
-    if (dragging === "start") onMove(idx, range.end);
-    else onMove(range.start, idx);
-  }, [dragging, xToIdx, onMove, range.start, range.end]);
-
-  const endDrag = useCallback((e: React.PointerEvent) => {
-    if (!dragging) return;
-    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* noop */ }
-    setDragging(null);
+    const onPointerMove = (e: PointerEvent) => {
+      const idx = xToIdxRef.current(e.clientX);
+      const r = rangeRef.current;
+      if (dragging === "start") onMoveRef.current(idx, r.end);
+      else                       onMoveRef.current(r.start, idx);
+    };
+    const onPointerUp = () => setDragging(null);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+    };
   }, [dragging]);
 
   // Schraffur-Muster fuer Trim-Edges -- macht Edge-Cuts visuell klar von
@@ -217,13 +242,12 @@ function RangeBar({
       pointerEvents: "none",
       overflow: "visible",
     }}>
-      {/* Start-Handle -- nicht fuer Trim-Start (linke Kante klebt am Track-Start) */}
+      {/* Start-Handle -- nicht fuer Trim-Start (linke Kante klebt am Track-Start).
+          Nur onPointerDown am Element; Move/Up haengen am Window (siehe useEffect),
+          damit der Drag auch ueberlebt, wenn das Handle waehrenddessen verschwindet. */}
       {!trimStart && (
         <div
           onPointerDown={startDrag("start")}
-          onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
           style={{
             ...handleStyle,
             left: -HANDLE_WIDTH / 2,
@@ -237,9 +261,6 @@ function RangeBar({
       {!trimEnd && (
         <div
           onPointerDown={startDrag("end")}
-          onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
           style={{
             ...handleStyle,
             right: -HANDLE_WIDTH / 2,
