@@ -5,6 +5,47 @@ permanente Referenz liegen in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
+## Schritt 6e — Slider-Präzision + Export-Hint (25. Mai 2026)
+
+### OffsetSlider: schwer aimbar bei nicht-runden Zielwerten
+
+**Symptom:** Slider auf 7.5 m oder 7.0 m zu setzen war fast unmöglich.
+Mit Shift+Drag bekam man fraktionale Werte (0.2 m, 7.3 m), aber nie
+exakt 7.5 oder 7.
+
+**Ursachen, dreifach kombiniert:**
+- Range ±200 m mit Step 1 m = 400 Schritte auf ~150 px Slider-Breite
+  = 0.4 px pro Schritt. Visuell nicht treffbar.
+- Step-Default 1 m traf 7.5 nicht, Shift-Fein-Step 0.1 m traf 7.0 nicht
+  (außer per Glück).
+- Der Shift-Listener war ein React-onKeyDown am Slider-Element. Beim
+  Maus-Drag — dem Hauptweg — wurde er nie ausgelöst, weil der Slider
+  dabei nicht den Keyboard-Focus hat.
+
+**Fix:**
+- Range auf ±50 m reduziert. Wer mehr braucht: per Doppelklick
+  numerisch eintippen (kein Range-Limit dort).
+- Default-Step 0.5 m: trifft 7.0, 7.5, 8.0 alle nativ.
+- Shift+Drag-Fein-Step jetzt 0.1 m, über Window-Level keydown/keyup-
+  Listener im `useEffect`. Funktioniert beim Maus-Drag, weil Window die
+  Shift-Taste empfängt — egal welches Element den Focus hat. Window-
+  Blur setzt zurück, damit der Feinschritt nicht klebt, wenn Shift in
+  einem anderen Fenster losgelassen wird.
+
+### Export-Workflow unklar: ranges.json runtergeladen, was nun?
+
+**Symptom:** Nach Klick auf "Export" bekam man eine ranges.json zum
+Download. Was damit anzufangen war, stand zwar in der README, aber im
+Viewer selbst gab es keinen Hinweis.
+
+**Fix:** Nach Klick auf Export erscheint ein schwebendes Popup über der
+Cut-Leiste mit dem fertigen `apply_cuts`-CLI-Befehl als kopierbarem
+Code-Block. Mit "In Zwischenablage kopieren"-Button und einem Hinweis,
+dass Platzhalter (`<dein_track>`, `<Downloads>`, `<dein_dem>`) ersetzt
+werden müssen. Auto-Dismiss nach 25 s oder manuell über das X.
+
+---
+
 ## Schritt 6d — Cut-Drag-Bug bei Trim-Edge-Übergang (25. Mai 2026)
 
 **Symptom:** Beim Ziehen eines Cut-Handles bis zur Track-Kante (also

@@ -76,6 +76,15 @@ export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
 
   const canAdd = api.canAddRange(activeIdx, totalPoints);
 
+  // Hint-State: nach Export einen Popup mit dem fertigen CLI-Befehl
+  // einblenden. Verschwindet nach 25 s automatisch oder beim Klick aufs X.
+  const [exportHint, setExportHint] = useState<boolean>(false);
+  useEffect(() => {
+    if (!exportHint) return;
+    const t = window.setTimeout(() => setExportHint(false), 25_000);
+    return () => window.clearTimeout(t);
+  }, [exportHint]);
+
   const handleExport = useCallback(() => {
     const payload = {
       total_points: totalPoints,
@@ -90,7 +99,32 @@ export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
     a.download = "ranges.json";
     a.click();
     URL.revokeObjectURL(url);
+    setExportHint(true);
   }, [api.ranges, totalPoints]);
+
+  // Der vorgeschlagene apply_cuts-Befehl mit Platzhaltern, die der
+  // Nutzer noch ausfuellen muss. Wir kennen den Feather-Pfad nicht (das
+  // weiss nur der Backend-Export-Schritt), deshalb generisch.
+  const cliCmd = [
+    '$env:PYTHONUTF8 = "1"',
+    'python -m gps_pipeline.apply_cuts `',
+    '    --feather output/<dein_track>.feather `',
+    '    --ranges  <Downloads>/ranges.json `',
+    '    --output  output_trimmed/ `',
+    '    --dem     data/<dein_dem>.tif `',
+    '    --charts  data/',
+    '$env:PYTHONUTF8 = "1"',
+    'python view.py output_trimmed',
+  ].join("\n");
+
+  const copyCmd = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(cliCmd);
+    } catch {
+      // Clipboard-API kann auf nicht-HTTPS-Origins fehlschlagen --
+      // dann muss der Nutzer aus dem <pre>-Block kopieren.
+    }
+  }, [cliCmd]);
 
   // Labelled + sortiert -- benutze ich sowohl unten als auch fuer die
   // Count-Anzeige rechts.
@@ -100,7 +134,28 @@ export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
   );
 
   return (
-    <div style={containerStyle}>
+    <div style={{ ...containerStyle, position: "relative" }}>
+      {exportHint && (
+        <div style={hintBoxStyle}>
+          <div style={hintHeaderStyle}>
+            <span>ranges.json heruntergeladen. Naechster Schritt:</span>
+            <button
+              onClick={() => setExportHint(false)}
+              style={hintCloseStyle}
+              title="Hinweis schliessen"
+            >×</button>
+          </div>
+          <pre style={hintCmdStyle}>{cliCmd}</pre>
+          <div style={hintFooterStyle}>
+            <button onClick={copyCmd} style={hintCopyBtnStyle}>
+              In Zwischenablage kopieren
+            </button>
+            <span style={{ color: "#888", fontSize: 10 }}>
+              Vorher Platzhalter ersetzen (Track-Name, Download-Pfad, DEM)
+            </span>
+          </div>
+        </div>
+      )}
       <div style={leftCtrlsStyle}>
         <button
           onClick={handleAdd}
@@ -364,4 +419,79 @@ const buttonStyle: React.CSSProperties = {
 const countStyle: React.CSSProperties = {
   color: "#888", fontSize: 11, minWidth: 60, textAlign: "right",
   flexShrink: 0,
+};
+
+// ---------------------------------------------------------------------------
+// Export-Hint Popup
+// ---------------------------------------------------------------------------
+
+const hintBoxStyle: React.CSSProperties = {
+  position: "absolute",
+  // ueber der Cut-Leiste schweben, an der rechten Seite (wo der
+  // Export-Button bei mehreren Cuts liegt). Boden waere TrackSlider drunter.
+  bottom: "calc(100% + 6px)",
+  right: 16,
+  width: 520,
+  background: "rgba(20, 20, 28, 0.96)",
+  border: "1px solid rgba(255,255,255,0.18)",
+  borderRadius: 8,
+  padding: "10px 12px",
+  color: "#eee",
+  fontSize: 11,
+  fontFamily: "system-ui, sans-serif",
+  boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+  zIndex: 20,
+};
+
+const hintHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginBottom: 6,
+  fontWeight: 600,
+};
+
+const hintCloseStyle: React.CSSProperties = {
+  background: "transparent",
+  border: "1px solid #444",
+  color: "#bbb",
+  borderRadius: 3,
+  cursor: "pointer",
+  fontSize: 13,
+  lineHeight: "14px",
+  width: 20,
+  height: 20,
+  padding: 0,
+};
+
+const hintCmdStyle: React.CSSProperties = {
+  background: "#0a0a12",
+  border: "1px solid #2a2a3a",
+  borderRadius: 4,
+  padding: "8px 10px",
+  fontSize: 11,
+  lineHeight: 1.45,
+  fontFamily: "ui-monospace, 'Cascadia Code', Consolas, monospace",
+  color: "#d8d8e0",
+  margin: "4px 0 8px 0",
+  overflowX: "auto",
+  whiteSpace: "pre",
+};
+
+const hintFooterStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 10,
+};
+
+const hintCopyBtnStyle: React.CSSProperties = {
+  background: "#3a3",
+  color: "#fff",
+  border: "1px solid #4b4",
+  borderRadius: 4,
+  padding: "3px 10px",
+  fontSize: 11,
+  cursor: "pointer",
+  fontWeight: 600,
 };

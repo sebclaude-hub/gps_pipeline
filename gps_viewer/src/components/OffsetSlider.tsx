@@ -19,7 +19,7 @@
  * Schrittweite: 1 m (Standard), 0.1 m bei gedrueckter Shift-Taste.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 interface Props {
   /** Aktueller Offset-Wert in Metern. */
@@ -29,9 +29,13 @@ interface Props {
   onChange: (v: number) => void;
 }
 
-const RANGE_M = 200;       // ± um den Slider-Default herum
-const STEP_M = 1;
-const FINE_STEP_M = 0.1;
+// ± um den Slider-Default. Klein gehalten (50 m statt 200 m), weil bei
+// ~150 px Slider-Breite und Step 0.5 ein 50-m-Range etwa 1.5 px pro
+// Schritt liefert -- ueberhaupt erst aimbar. Wer mehr braucht: per
+// Doppelklick numerisch eintippen, das hat keine Range-Begrenzung.
+const RANGE_M = 50;
+const STEP_M = 0.5;        // trifft 7.0, 7.5, 8.0 alle nativ
+const FINE_STEP_M = 0.1;   // mit gedrueckter Shift-Taste waehrend des Drags
 
 export function OffsetSlider({ value, suggested, onChange }: Props) {
   const [editing, setEditing] = useState(false);
@@ -48,14 +52,32 @@ export function OffsetSlider({ value, suggested, onChange }: Props) {
     onChange(Number(e.target.value));
   }, [onChange]);
 
-  // Shift-Modifier fuer Feinschritt -- der native Browser-Slider macht
-  // das nicht von sich aus. Wir reagieren auf keydown/keyup und tauschen
-  // dynamisch die step-Attribute.
+  // Shift-Modifier fuer Feinschritt. Die ALTE Implementierung mit React
+  // onKeyDown auf dem Slider hat nur bei fokussiertem Slider PLUS aktiver
+  // Keyboard-Bedienung gefeuert -- beim Maus-Drag (was der Hauptweg ist)
+  // wurde sie nie ausgeloest. Deshalb jetzt auf Window-Level, damit Shift
+  // egal wo gedrueckt werden kann (auch waehrend ein Drag laeuft).
   const [step, setStep] = useState<number>(STEP_M);
-  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.shiftKey) setStep(FINE_STEP_M);
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Shift") setStep(FINE_STEP_M);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Shift") setStep(STEP_M);
+    };
+    // Sicherheitshalber auch bei Window-Blur zuruecksetzen, sonst klebt
+    // der Feinschritt, wenn die Shift-Taste in einem anderen Fenster
+    // losgelassen wird.
+    const onBlur = () => setStep(STEP_M);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
   }, []);
-  const onKeyUp = useCallback(() => setStep(STEP_M), []);
 
   const startEdit = useCallback(() => {
     setDraft(value.toFixed(1));
@@ -103,8 +125,6 @@ export function OffsetSlider({ value, suggested, onChange }: Props) {
         step={step}
         value={sliderValue}
         onChange={handleSliderChange}
-        onKeyDown={onKeyDown}
-        onKeyUp={onKeyUp}
         style={sliderInputStyle}
         title={`${min} … ${max} m (Shift = Feinschritt 0.1 m)`}
       />
