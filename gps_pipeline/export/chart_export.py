@@ -63,7 +63,7 @@ def export_charts(
             print(f"Chart '{ch.name}': Kopieren fehlgeschlagen ({exc}); uebersprungen.")
             continue
 
-        entries.append({
+        entry = {
             "name":        ch.name,
             "image":       f"charts/{ch.png_path.name}",
             "corner_tl":   [round(ch.corner_tl[0], 7), round(ch.corner_tl[1], 7)],
@@ -71,7 +71,11 @@ def export_charts(
             "corner_bl":   [round(ch.corner_bl[0], 7), round(ch.corner_bl[1], 7)],
             "corner_br":   [round(ch.corner_br[0], 7), round(ch.corner_br[1], 7)],
             "elevation_m": round(float(ch.elevation_m), 2),
-        })
+        }
+        # Optionaler Subdivision-Override -- nur ins JSON, wenn explizit gesetzt.
+        if ch.subdivision is not None:
+            entry["subdivision"] = int(ch.subdivision)
+        entries.append(entry)
 
     out_path = output_dir / "charts.json"
     with open(out_path, "w", encoding="utf-8") as f:

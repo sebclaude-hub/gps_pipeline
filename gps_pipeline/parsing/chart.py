@@ -59,6 +59,12 @@ class ChartOverlay:
     """Hoehenreferenz in m. Wird nur als Fallback verwendet, wenn kein DEM
     vorhanden ist; mit DEM wird die Karte auf das Gelaende gedrapt."""
 
+    subdivision: Optional[int] = None
+    """Optionaler Override der Mesh-Aufloesung im Viewer (N x N Vertices).
+    Wenn None, berechnet der Viewer einen adaptiven Wert aus den Bounds
+    (~50 m pro Vertex, Cap 128). Sinnvoll z.B. um auf grossen Karten gezielt
+    feiner aufzuloesen, oder bei flachem Gelaende absichtlich grober."""
+
     def bounds(self) -> tuple[float, float, float, float]:
         """(lon_min, lat_min, lon_max, lat_max) ueber alle vier Ecken."""
         lons = [self.corner_tl[0], self.corner_tr[0],
@@ -123,6 +129,17 @@ def parse_chart_txt(path: Path) -> Optional[ChartOverlay]:
         except ValueError:
             pass
 
+    subdivision: Optional[int] = None
+    if "subdivision" in metadata:
+        try:
+            sub = int(metadata["subdivision"])
+            # Sanity: nicht < 2 (Mesh braucht mindestens 1 Zelle) und nicht
+            # absurd hoch (256x256 = 65k Vertices ist bereits viel).
+            if 2 <= sub <= 256:
+                subdivision = sub
+        except ValueError:
+            pass
+
     return ChartOverlay(
         name=path.stem,
         png_path=png_path,
@@ -131,6 +148,7 @@ def parse_chart_txt(path: Path) -> Optional[ChartOverlay]:
         corner_bl=bl,
         corner_br=br,
         elevation_m=elevation_m,
+        subdivision=subdivision,
     )
 
 

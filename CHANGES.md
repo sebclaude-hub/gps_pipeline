@@ -309,10 +309,77 @@ darüber zu schweben.
 * **Backend**: `parsing/chart.py` parst PNG+TXT-Paare;
   `export/chart_export.py` kopiert die PNGs nach `output/charts/` und
   schreibt `charts.json`.
-* **Frontend**: `utils/chartMesh.ts` baut für jede Karte ein 32×32-Mesh,
-  bei dem jeder Vertex die DEM-Höhe an dieser Stelle bekommt (echtes
-  Draping). UV-Koordinaten ergeben sich trivial aus der Gitterposition.
+* **Frontend**: `utils/chartMesh.ts` mit zwei Strategien:
+  - **Strategie A (Default, achsenparallele Karten + DEM)**: das
+    Chart-Mesh wird aus dem aktiven DEM-LOD-Subgrid gebaut --
+    es nutzt **dieselben Vertices wie das Terrain-Mesh**. UV ergibt
+    sich aus der relativen Position innerhalb der Karten-Bounds.
+  - **Strategie B (Fallback)**: kein DEM oder gedrehte Karte ->
+    bilineare Interpolation der vier Ecken, adaptive Subdivision
+    (~50 m/Vertex, Cap 256×256, Floor 8×8, override via
+    `subdivision: N` in der TXT).
   `layers/chartLayer.ts` rendert das mit `SimpleMeshLayer` und PNG-Textur.
+
+### Bug-Postmortem -- der "Triangulation um 90 Grad gedreht"-Bug
+
+Beim End-to-End-Test (echtes DEM + zwei georeferenzierte PNGs) sind
+mehrere subtile Bugs aufgefallen. Reihenfolge der Fixes:
+
+1. **UV-Mapping**: erste Iteration `(u, 1-v)` zeigte das PNG um 180°
+   gedreht; zweite `(1-u, v)` nur noch horizontal vertauscht; dritte
+   `(u, v)` korrekt. Erkenntnis: `SimpleMeshLayer` sampelt mit
+   unflipped U und V relativ zu den HTMLImageElement-Pixeln -- die
+   natuerliche Mesh-Iteration (r=0 oben, c=0 links) ist direkt
+   kompatibel. **Das PNG selbst muss nicht gedreht/gespiegelt
+   werden.**
+
+2. **Mesh-Aufloesung vs. DEM-Aufloesung**: zunaechst nutzte Strategie A
+   ein eigenes N×N-Gitter (Cap 256) mit DEM-Höhensampling pro Vertex.
+   Bei großen Karten (z.B. 35 km) lag das bei ~140 m/Vertex -- gröber
+   als das DEM (Copernicus 30 m). Zwischen Chart-Vertices interpolierte
+   das Chart linear, missed dabei aber die feineren DEM-Details. Fix:
+   Chart-Mesh verwendet *exakt die DEM-Vertices innerhalb der
+   Karten-Bounds* -- identische Auflösung, gleiche Höhenwerte.
+
+3. **Anker-Mismatch**: trotz identischer DEM-Vertices war die Karte um
+   ~150 m horizontal gegenüber dem Terrain verschoben. Ursache: Chart
+   nutzte den Karten-Mittelpunkt als Anker mit eigenem
+   `cos(lat_chart_center)`-Faktor, Terrain nutzte den DEM-Mittelpunkt
+   mit `cos(lat_dem_center)`. Bei 0.5° Lat-Differenz ergibt das ~0.6%
+   horizontale Verzerrung -- bei 35 km Karte sind das 150 m. Fix:
+   Chart verwendet identischen Anker und cos-Faktor wie demMesh
+   (DEM-Center).
+
+4. **Der eigentliche "Z-Fighting"-Bug -- 90 Grad gedrehte
+   Triangulation**: selbst nach Schritten 1-3 traten an Geländekanten
+   dreieckige braune Flecken auf, die so aussahen, als würden die
+   DEM-Dreiecke aus der Karte herausragen. **Sie tun es auch -- weil
+   die Triangulation um 90 Grad versetzt lief.** Beide Meshes
+   verwenden im Index-Buffer die Konvention `tl, bl, tr, br` mit der
+   Diagonalen `tl-bl-tr` / `tr-bl-br`, ABER:
+   - demMesh iteriert `r=0..n_rows-1` mit `r=0` bei `lat_min` (Süden).
+     Damit ist `"tl"` geographisch SW, `"bl"` ist NW. Diagonale: NW-SE.
+   - chartMesh Strategie A iterierte ursprünglich `r=r_max..r_min`
+     (Norden zuerst), `"tl"` war NW, `"bl"` war SW. Diagonale: SW-NE.
+
+   Die beiden Diagonalen stehen **senkrecht aufeinander**. Selbst bei
+   identischen Vertex-Höhen interpolieren die Meshes über
+   *verschiedene* Diagonalen -- innerhalb jedes Quads kann die
+   Höhendifferenz mehrere Meter erreichen. Das DEM-Dreieck stößt
+   dann durch die Karte. Fix: Iterationsreihenfolge in Strategie A
+   exakt an demMesh angeglichen (`r_min..r_max`). Die UV-Berechnung
+   bleibt geo-basiert und ist iterations-unabhängig, also keine
+   Orientierungs-Auswirkung.
+
+Nach diesen vier Fixes ist **keinerlei Z-Lift mehr erforderlich**
+(`Z_LIFT_SUBGRID_M = 0`). Chart und Terrain interpolieren über jeden
+Punkt zwischen den Vertices bitidentisch -- klassisches Z-Fighting ist
+mathematisch unmöglich, die Karte gewinnt durch die spätere Position
+in der Layer-Liste (Render-Order-Tiebreak).
+
+Strategie B (Fallback ohne DEM oder bei gedrehten Karten) braucht
+weiterhin einen 5 m-Lift, weil sie ein eigenes N×N-Gitter aufspannt und
+zwischen Chart-Vertices anders interpoliert als das Terrain.
 * **Z-Exaggeration**: identisch zu Terrain/Track verwendet -- die Karte
   bleibt konsistent am Gelände, auch wenn der Z-Scale-Faktor wechselt.
 * **UI**: Karten-Toggle erscheint nur wenn `charts.json` Overlays enthält.

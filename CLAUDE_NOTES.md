@@ -135,12 +135,29 @@ Vier Features in einer Opus-4.7-Session implementiert. Details siehe
 - Frontend: `utils/chartMesh.ts`, `layers/chartLayer.ts`,
   `api/loadCharts.ts`, `hooks/useCharts.ts`
 - Format: `data/<name>.png` + `data/<name>.txt` mit 4 Eckkoordinaten
-  (`lon lat` pro Zeile, Reihenfolge TL/TR/BL/BR). Optional `elevation_m: 220`.
+  (`lon lat` pro Zeile, Reihenfolge TL/TR/BL/BR). Optional `elevation_m: 220`,
+  optional `subdivision: N` als Mesh-Override.
 - Manifest: zusätzlicher `charts: "charts.json" | null`-Eintrag.
 - Toggle erscheint nur wenn Overlays geladen sind; mehrere PNGs gleichzeitig
   möglich (z.B. Anflug + Abflug).
 - Wichtig: Z-Exaggeration (altBase, zScale) MUSS in `buildChartMesh()`
   identisch zu Terrain/Track sein, sonst schwebt die Karte weg.
+
+**Wichtige Lehren aus dem E2E-Test (siehe Bug-Postmortem in CHANGES.md):**
+- Das PNG selbst braucht KEINE manuelle Drehung/Spiegelung. UV-Mapping
+  `(u, v)` direkt aus geographischer Position genuegt.
+- SimpleMeshLayer sampelt Texturen mit unflipped U und V relativ zu
+  HTMLImageElement-Pixeln.
+- Wenn zwei SimpleMeshLayer-Meshes deckungsgleich sein sollen, muessen
+  **drei** Dinge uebereinstimmen:
+    1. Vertex-Positionen
+    2. Anker + cos(lat)-Faktor (NICHT pro Mesh neu berechnen)
+    3. Triangulation -- inkl. der gleichen Iterationsreihenfolge
+       (sonst stehen die Diagonalen senkrecht aufeinander, auch wenn
+        die Index-Reihenfolge wortgleich aussieht).
+- Strategie A in chartMesh.ts macht das jetzt -- Z-Lift = 0 reicht.
+- Strategie B (Fallback) braucht 5 m Z-Lift wegen unterschiedlicher
+  Interpolation gegen Terrain-Mesh.
 
 **5b -- RangeSelector (Trimming + Multi-Cut):**
 - Frontend: `hooks/useRangeSelection.ts`, `components/RangeSelector.tsx`
