@@ -137,10 +137,11 @@ Aufruf ist `python view.py output/nmea_2026-05-02_16-54-51_rx_log`.
 - **GPX/KML-Pipeline**: bisher nur NMEA real E2E-getestet. GPX/KML-
   Pfad ist im Code parallel zu NMEA, sollte aber theoretisch
   funktionieren (df_raw=None, derivation ohne Sats).
-- **TRACK_Z_OFFSET in `config.py`**: Konstante steht noch drin
-  obwohl `api.py` sie nicht mehr nutzt. `three_d.py` und
-  `enrich_terrain.py` referenzieren sie aber noch. Aufräumen, wenn
-  Legacy-Plotly-Pfad mal überarbeitet wird.
+(TRACK_Z_OFFSET und `compare_track_dem` wurden in Schritt E1
+vollstaendig entfernt -- der React-Viewer bringt einen Z-Slider mit
+und Schnittanweisungen koennen einen vorgeschlagenen Offset mit-
+liefern. Der `track_z_offset`-Parameter in `enrich_terrain_elevation`
+und `visualize_3d` bleibt als manueller Override fuer den Plotly-Pfad.)
 
 ---
 

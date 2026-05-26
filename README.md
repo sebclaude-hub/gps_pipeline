@@ -80,8 +80,12 @@ python -m gps_pipeline
 
 # Viewer starten -- öffnet http://localhost:8765
 $env:PYTHONUTF8 = "1"
-python view.py output/nmea_track    # Subdir-Name = <quelltyp>_<basename>
+python view.py output    # Auto-Discovery: findet den einzelnen Subdir
+# oder explizit: python view.py output/nmea_<basename>
 ```
+
+Bei mehreren Tracks in `output/` gibt `python view.py output` die Liste
+aus, dann gibt man den gewünschten Subdir explizit an.
 
 Für volle Kontrolle (z.B. ein einzelner Track per Library):
 

@@ -17,9 +17,10 @@ Höhen-Bezug
 -----------
 ``track_above_terrain`` ist nur sinnvoll, wenn Track-Höhe und DEM-Höhe
 denselben Bezug haben. Bei unterschiedlichen Bezügen (z.B. ellipsoidische
-GPS-Höhe vs. NN-bezogenes DEM) muss vorher ein Offset auf den Track
-angewendet werden — siehe ``terrain.dem.compare_track_dem`` für die
-Diagnose und ``track_z_offset`` in den Visualisierungs-Funktionen.
+GPS-Höhe vs. NN-bezogenes DEM) bringt der React-Viewer einen interaktiven
+Z-Offset-Slider mit, der pro Anzeige korrigiert. Der ``track_z_offset``-
+Parameter dieser Funktion erlaubt zusätzlich ein vorgebackenes Offset
+für den Plotly-HTML-Pfad.
 """
 
 from typing import Optional

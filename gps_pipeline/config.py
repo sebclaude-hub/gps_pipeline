@@ -94,15 +94,8 @@ DEM_MAX_PIXELS_PER_AXIS = 2000
 # auf starken Systemen kann man bis ~200 hochziehen.
 DEM_MAX_HTML_MB = 100
 
-# Wie soll der Höhen-Offset zwischen Track und DEM behandelt werden?
-# Mögliche Werte:
-#   "auto"          — automatische Diagnose, Median-Differenz wird angewendet.
-#                     Sinnvoll bei Boden-Tracks (Auto, Rad, Fußgänger), wo der
-#                     Track im Mittel auf dem Gelände liegen sollte.
-#   "none" / None   — kein Offset. Track bleibt wie er ist.
-#                     Richtig für Flüge, Drohnen, Bergsteigen — hier soll der
-#                     Track ehrlich weit über dem Gelände schweben.
-#   Zahl (float)    — fester Offset in Metern. Positiv hebt den Track an,
-#                     negativ senkt ihn ab. Manuell ermittelt, z.B. wenn die
-#                     automatische Diagnose durch Ausreißer verfälscht wird.
-TRACK_Z_OFFSET = "auto"
+# (Auto-Offset-Diagnose wurde entfernt -- der React-Viewer bringt einen
+# interaktiven Z-Offset-Slider mit, und Schnittanweisungen koennen einen
+# vorgeschlagenen Offset mitliefern. Wer den Plotly-HTML-Pfad nutzt und
+# einen Offset braucht, gibt ihn explizit per Parameter an
+# render_visualizations / visualize_3d.)

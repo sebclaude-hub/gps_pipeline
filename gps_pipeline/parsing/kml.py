@@ -34,8 +34,9 @@ Höhen-Bezug
 ``altitudeMode=absolute`` heißt laut KML-Spec: ellipsoidische WGS84-Höhe
 oder MSL-Höhe, je nach Datenquelle. Google Earth selbst nutzt MSL (EGM96).
 Bei dieser Pipeline behandeln wir den Wert wie alle anderen ``altitude_corrected``
-auch — als nominell MSL/NN-bezogen. Wenn der Bezug nicht stimmt, hilft die
-Diagnose in ``terrain.dem.compare_track_dem`` bzw. ``TRACK_Z_OFFSET`` in der Config.
+auch — als nominell MSL/NN-bezogen. Wenn der Bezug nicht stimmt, korrigiert
+der Z-Offset-Slider im React-Viewer interaktiv (oder das ``z_offset_m``-Feld
+in der Schnittanweisung beim Teilen von Tracks).
 """
 
 import xml.etree.ElementTree as ET

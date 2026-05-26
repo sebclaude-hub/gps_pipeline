@@ -170,16 +170,21 @@ kompensieren.
 - **InfoPanel und Tooltip** im React-Viewer rechnen `above_terrain`
   und `MSL` live aus `alt + zOffset − terrain_elev`.
 
-**Konfiguration** (`TRACK_Z_OFFSET` in `config.py`):
+**Quelle des Vorschlags**:
 
-- `"auto"` (Default): Auto-Diagnose mit Clamping. Wert landet in
-  `track.json::meta.suggested_z_offset_m` als Slider-Default.
-- `"none"` oder `None`: kein Offset, Vorschlag = 0.
-- Zahl (z.B. `-36.4`): fester Wert in Metern (überschreibt die
-  Auto-Diagnose). Slider-Default = dieser Wert.
+- Wenn neben der Quelldatei eine `.cuts.json` mit `z_offset_m`-Feld
+  liegt, wird dieser Wert in `track.json::meta.suggested_z_offset_m`
+  geschrieben (siehe Schnittanweisungen weiter unten).
+- Sonst: Vorschlag = 0.
 
-In allen Fällen darf der Nutzer im React-Viewer den Slider beliebig
-verschieben — der Python-Wert ist nur der Startpunkt.
+Der Nutzer darf im React-Viewer den Slider beliebig verschieben — der
+Vorschlag ist nur der Startwert. Beim Export-Klick wird der aktuelle
+Slider-Wert wieder mit in die `.cuts.json` geschrieben (`z_offset_m`),
+sodass geteilte Tracks die gewünschte Höhenanzeige mitbringen.
+
+Eine Backend-Auto-Diagnose (Track-vs-DEM-Vergleich) existiert nicht mehr —
+die war oft durch Ausreißer verfälscht und ist durch den interaktiven
+Slider sauberer abgelöst.
 
 ### DEM-Auflösung
 
@@ -377,7 +382,6 @@ Hilfreich beim Nachschauen, falls ein Wert in einem Plot nicht stimmt:
 
 | Parameter | Wert | Bedeutung |
 |---|---|---|
-| `TRACK_Z_OFFSET` | `"auto"` | Höhen-Offset-Modus |
 | `DEM_SMOOTH` | `1.0` | Sigma für Gaussian-Smoothing (0 deaktiviert) |
 | `DEM_TARGET_PIXEL_SIZE_M` | `50` | Ziel-Pixelgröße in m |
 | `DEM_MAX_PIXELS_PER_AXIS` | `2000` | Harte Pixel-Obergrenze |

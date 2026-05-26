@@ -194,7 +194,8 @@ def visualize_3d(
         Vertikaler Offset (in Metern), der vor dem Plotten auf die Track-Höhe
         addiert wird. Default 0. Nützlich, wenn Track und DEM unterschiedliche
         Höhen-Bezüge haben (z.B. ellipsoidische GPS-Höhe vs. NN-bezogenes DEM).
-        Den passenden Wert liefert ``terrain.dem.compare_track_dem``.
+        Wert muss manuell vom Aufrufer gewählt werden -- der React-Viewer
+        bringt dafür einen interaktiven Slider mit.
     width, height : int
         Figure-Größe in Pixeln. Default 1200×800.
 

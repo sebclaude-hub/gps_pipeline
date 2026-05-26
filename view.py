@@ -9,6 +9,16 @@ Verwendung
     python view.py pfad/zu/output/    # Explizites Output-Verzeichnis
     python view.py --port 9000 output/
 
+Auto-Discovery
+--------------
+Wenn ``output_dir`` selbst keine ``manifest.json`` enthält, sucht view.py
+auf erster Unterordner-Ebene:
+* Genau ein Unterordner mit ``manifest.json`` -> automatisch dorthin
+  wechseln (typischer Fall nach ``python -m gps_pipeline`` mit einem
+  einzigen Track).
+* Mehrere Treffer -> Liste in der Konsole, Nutzer wählt explizit aus.
+* Kein Treffer -> Fehlermeldung wie bisher.
+
 Routing
 -------
     GET /          → gps_viewer/dist/index.html
@@ -89,6 +99,47 @@ class GpsViewerHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
+def _resolve_output_dir(output_dir: Path) -> Path:
+    """Auto-Discovery: wenn output_dir selbst keine manifest.json hat,
+    suche genau ein Unterverzeichnis mit einer. Bei mehreren Treffern
+    gibt die Funktion die Liste aus und beendet das Programm.
+
+    Damit funktioniert ``python view.py output`` direkt nach
+    ``python -m gps_pipeline`` ohne Subdir-Tipperei, wenn nur ein Track
+    verarbeitet wurde.
+    """
+    manifest = output_dir / "manifest.json"
+    if manifest.is_file():
+        return output_dir
+
+    # Eine Ebene tiefer suchen.
+    candidates = sorted(
+        p for p in output_dir.iterdir()
+        if p.is_dir() and (p / "manifest.json").is_file()
+    )
+
+    if len(candidates) == 1:
+        chosen = candidates[0]
+        print(f"Auto-Discovery: nutze {chosen.relative_to(output_dir.parent)}")
+        return chosen
+
+    if len(candidates) == 0:
+        print(
+            f"Fehler: keine manifest.json in {output_dir} oder einem ihrer "
+            f"Unterordner gefunden.\n"
+            f"Bitte zuerst 'python -m gps_pipeline' ausführen, sodass "
+            f"track.json + manifest.json erzeugt werden."
+        )
+        sys.exit(1)
+
+    # Mehrere Treffer -> Liste ausgeben, Nutzer waehlt explizit.
+    print(f"Mehrere Tracks in {output_dir} gefunden. Bitte explizit angeben:")
+    for p in candidates:
+        rel = p.relative_to(output_dir.parent)
+        print(f"    python view.py {rel}")
+    sys.exit(1)
+
+
 def _guess_mime(path: Path) -> str:
     ext = path.suffix.lower()
     return {
@@ -136,12 +187,7 @@ def main():
         print(f"Fehler: Output-Verzeichnis nicht gefunden: {output_dir}")
         sys.exit(1)
 
-    manifest = output_dir / "manifest.json"
-    if not manifest.is_file():
-        print(
-            f"Warnung: Kein manifest.json in {output_dir}. "
-            f"Bitte zuerst 'python -m gps_pipeline --export' ausführen."
-        )
+    output_dir = _resolve_output_dir(output_dir)
 
     # Handler mit Output-Dir ausstatten
     GpsViewerHandler.output_dir = output_dir
