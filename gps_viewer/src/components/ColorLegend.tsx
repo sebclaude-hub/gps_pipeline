@@ -65,7 +65,59 @@ function distributeTicks(breaks: number[], minGap: number): number[] {
   return positions.map(p => p / total);
 }
 
+// Hex-Strings spiegeln die Rgba-Konstanten aus curtainLayer.ts wider.
+const FLIGHT_CLASSES = [
+  { color: "#dc3c3c", label: "< 500 ft GND" },
+  { color: "#f09628", label: "< 1000 ft GND" },
+  { color: "#3cbebe", label: "< 5000 ft MSL" },
+  { color: "#4678dc", label: "darueber" },
+];
+const DRONE_CLASSES = [
+  { color: "#4678dc", label: "<= 100 m GND" },
+  { color: "#dc3c3c", label: "darueber" },
+];
+
+function ClassLegend({ topOffset, label, classes }: {
+  topOffset: number; label: string;
+  classes: { color: string; label: string }[];
+}) {
+  return (
+    <div style={{
+      position: "absolute", top: topOffset, right: 12,
+      background: "rgba(0,0,0,0.65)",
+      borderRadius: 6, padding: "10px 12px",
+      color: "#ddd", fontSize: 11,
+      pointerEvents: "none",
+    }}>
+      <div style={{ marginBottom: 6, fontWeight: 600 }}>{label}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        {classes.map((c, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{
+              width: 14, height: 12,
+              background: c.color, borderRadius: 2,
+              border: "1px solid rgba(255,255,255,0.12)",
+            }} />
+            <span style={{ whiteSpace: "nowrap" }}>{c.label}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 6, color: "#888", fontSize: 10 }}>
+        Vorhang-Faerbung
+      </div>
+    </div>
+  );
+}
+
 export function ColorLegend({ breaks, colorMode, topOffset = 124 }: Props) {
+  // Klassen-Legenden fuer die regelbasierten Modi.
+  if (colorMode === "flight") {
+    return <ClassLegend topOffset={topOffset} label="Flug" classes={FLIGHT_CLASSES} />;
+  }
+  if (colorMode === "drone") {
+    return <ClassLegend topOffset={topOffset} label="Drohne" classes={DRONE_CLASSES} />;
+  }
+
   const isSpeed = colorMode === "speed";
   const values = isSpeed ? breaks.speed_kmh : breaks.altitude_m;
   const unit = isSpeed ? "km/h" : "m";

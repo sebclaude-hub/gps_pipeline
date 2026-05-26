@@ -5,6 +5,99 @@ permanente Referenz liegen in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
+## Schritt 7 — Schnittanweisungen statt Round-Trip-Feather (26. Mai 2026)
+
+Großer Architektur-Wechsel beim Cut-Workflow. Statt `apply_cuts.py` als
+separate CLI zu pflegen und einen zwischengelagerten Feather zu trimmen,
+schreibt der Viewer jetzt nur noch eine **Schnittanweisung** als kleine
+JSON-Datei neben der Quelldatei. Beim nächsten Pipeline-Lauf wird die
+Anweisung direkt auf die Originaldaten angewendet -- inklusive
+Schema A (Satelliten-Bursts werden mit-verschoben/mit-gefiltert).
+
+### Drei Cut-Modi pro Range
+
+* **trim** (rot) -- Punkte komplett entfernen, Zeitstempel bleiben.
+  Edge-Cuts (start=0 oder end=N-1) werden vom System IMMER auf trim
+  gezwungen, egal was der Viewer schickt.
+* **gap** (grün) -- Punkte entfernen, Zeitstempel bleiben. Sichtbare
+  Lücke im Track. Banner: Info-Severity.
+* **synthetic** (blau) -- Punkte entfernen UND nachfolgende Zeitstempel
+  nach vorne schieben, sodass eine zusammenhaengende Zeitachse
+  entsteht. Brückenzeit aus durchschnittlicher Speed der
+  Nachbarschaft. Banner: Warn-Severity ("Sats unter verschobenen
+  Zeitstempeln"). Im Gegensatz zur vorherigen Synthetic-Logik werden
+  GSV-Bursts (Schema A) jetzt mit-verschoben statt verworfen.
+
+### Datei-Format
+
+`data/<basename>.cuts.json` neben `data/<basename>` (Beispiel:
+`data/track.txt` + `data/track.txt.cuts.json`):
+
+```json
+{
+  "source": "track.txt",
+  "n_points_reference": 24138,
+  "cut_ranges": [
+    {"start": 0,   "end": 49,   "mode": "trim"},
+    {"start": 200, "end": 350,  "mode": "synthetic"},
+    {"start": 600, "end": 700,  "mode": "gap"}
+  ],
+  "created_at": "2026-05-26T10:00:00Z"
+}
+```
+
+Deaktivieren: Datei umbenennen (z.B. `.cuts.json.disabled`).
+
+### Neue Module / API
+
+* `gps_pipeline.parsing.cut_config` -- `CutConfig`, `CutSpec`,
+  `load_cut_config`, `find_cut_config`.
+* `gps_pipeline.processing.apply_cut_config.apply_cut_config(
+  df_raw, df_c, config) -> (df_raw, df_c, derivation)` -- behandelt
+  alle drei Modi auf beiden Schemata. Time-Shift wirkt auf Schema A
+  über Timestamps.
+* `gps_pipeline.api.apply_sidecar_cuts(source_path, df_raw, df_c)` --
+  Convenience: schaut nach Schnittanweisung neben der Quelldatei und
+  wendet ggf. an.
+
+### Entfernt
+
+* `gps_pipeline/apply_cuts.py` -- ersatzlos. Die CLI ist obsolet, der
+  Schnittanweisungs-Mechanismus läuft direkt im Standard-`__main__`-Modus
+  mit (sucht `<quelldatei>.cuts.json` neben jeder Quelldatei).
+* `gps_pipeline/processing/trim.py` -- Trim-Logik ist jetzt ein
+  Spezialfall von `apply_cut_config`.
+* `gps_pipeline/processing/synthetic.py` -- ebenso. Schema A wird
+  jetzt korrekt mit-geshiftet statt verworfen, daher keine separate
+  "_synthetic.feather"-Datei mehr.
+
+### Banner-Severity (Schritt 6)
+
+Drei Stile im React-Viewer:
+
+| Cut-Mischung | Banner |
+|---|---|
+| Nur trim | kein Banner |
+| gap (ohne synthetic) | ⓘ Info, blau-grau |
+| Mindestens ein synthetic | ⚠ Warnung, bernsteinfarben |
+
+Bei Mischung gewinnt die strengere Severity (synthetic > gap > nichts).
+
+### Frontend-Anpassungen (Schritt 5)
+
+* `useRangeSelection`: jeder Cut bekommt `mode: "trim" | "gap" | "synthetic"`.
+* Globaler Toggle "Middle-Mode" im `RangeSelector` als Pill-Switch
+  ("Lücke" / "Zeit verschieben") -- wirkt auf alle Middle-Cuts
+  gleichzeitig (User hat sich gegen Mischbetrieb in der UI entschieden;
+  das Datenformat trägt per-Cut-Modus trotzdem für Flexibilität).
+* Edge-Cuts (start=0 / end=N-1) werden automatisch rot dargestellt
+  und ignorieren den globalen Toggle.
+* Cut-Balken-Farbe nach Modus: trim=rot (mit Schraffur),
+  gap=grün, synthetic=blau.
+* Export schreibt `<source_basename>.cuts.json` mit dem neuen Format.
+
+---
+
 ## Schritt 6f — cut_ranges.json + Derivation-Banner (25. Mai 2026)
 
 ### Dateiname + Default-Pfad

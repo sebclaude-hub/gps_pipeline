@@ -46,9 +46,8 @@ npm run build       # erzeugt dist/ neu
 
 | Befehl | Zweck |
 |---|---|
-| `python -m gps_pipeline` | Alle Tracks aus `data/` verarbeiten, HTML + Feather nach `output/` |
+| `python -m gps_pipeline` | Alle Tracks aus `data/` verarbeiten, HTML + Feather nach `output/` (Cuts aus `<basename>.cuts.json` werden automatisch angewendet) |
 | `python view.py [output_dir]` | React-Viewer-Server starten, Browser öffnet automatisch |
-| `python -m gps_pipeline.apply_cuts ...` | `ranges.json` (aus Viewer-Export) auf Feather anwenden, neuen Viewer-Output erzeugen |
 | `python -c "from gps_pipeline import ..."` | Library-Nutzung für individuelle Workflows |
 
 Vor jedem Python-Aufruf auf Windows:
@@ -73,114 +72,121 @@ $env:PYTHONUTF8 = "1"
 #   data/EDFG.png            Karten-Overlay (optional)
 #   data/EDFG.txt            zugehörige Eckkoordinaten (4 Zeilen lon lat)
 
-# Voll-Export für den React-Viewer (mit DEM + Karten):
+# Alle Tracks aus data/ verarbeiten -- erzeugt sowohl Plotly-HTML
+# in output/ als auch React-Viewer-Output in output/<prefix>/track.json
+# (mit DEM-LODs + Karten + ggf. Schnittanweisungen, siehe Workflow 2):
 $env:PYTHONUTF8 = "1"
-python -c "
-from pathlib import Path
-from gps_pipeline import process_nmea, export_for_viewer, find_charts
-df_raw, df_c = process_nmea(Path('data/track.txt'))
-export_for_viewer(
-    df_c, Path('output'),
-    name_prefix='meine_tour',
-    df_raw=df_raw,
-    dem_paths=[Path('data/linked_sued.tif')],
-    charts=find_charts(Path('data')),
-)
-"
+python -m gps_pipeline
 
 # Viewer starten -- öffnet http://localhost:8765
 $env:PYTHONUTF8 = "1"
-python view.py output
+python view.py output/nmea_track    # Subdir-Name = <quelltyp>_<basename>
 ```
 
-Alternativ der "naive" Modus, der einfach alles aus `data/` verarbeitet
-und zusätzlich HTML-Dateien erzeugt (Legacy-Plotly-Pfad):
-
-```powershell
-$env:PYTHONUTF8 = "1"
-python -m gps_pipeline
-```
-
----
-
-## Workflow 2 — Track trimmen (Round-Trip)
-
-```powershell
-# 1. Im React-Viewer Cuts definieren (+ Cut, Reset, Export)
-#    -> Browser lädt cut_ranges.json herunter (in Downloads)
-#    -> Datei nach data/ verschieben (selber Ordner wie deine Quelldaten)
-
-# 2. Cuts anwenden (--ranges entfaellt, Default ist data/cut_ranges.json)
-$env:PYTHONUTF8 = "1"
-python -m gps_pipeline.apply_cuts `
-    --feather output/meine_tour.feather `
-    --output  output_trimmed/ `
-    --dem     data/linked_sued.tif `
-    --charts  data/
-
-# 3. Getrimmten Track im Viewer ansehen
-$env:PYTHONUTF8 = "1"
-python view.py output_trimmed
-```
-
-Im Viewer erscheint ein **Warnhinweis-Banner** ("Getrimmter Track —
-Original 'meine_tour', N Cuts angewendet, M Punkte entfernt"), damit
-unmissverständlich klar bleibt, dass die Ansicht eine bearbeitete
-Version ist und nicht die ursprünglichen Messungen.
-
-Alle Flags von `apply_cuts`:
-
-| Flag | Bedeutung | Pflicht |
-|---|---|---|
-| `--feather PFAD` | Bestehender Schema-C-Feather aus `output/` | ja |
-| `--output DIR` | Ziel-Verzeichnis für den neuen Viewer-Output | ja |
-| `--ranges PFAD` | `cut_ranges.json` (Default: `data/cut_ranges.json`) | nein |
-| `--dem PFAD` | DEM-GeoTIFF; mehrfach angebbar für Multi-Tile | nein |
-| `--charts DIR` | Verzeichnis mit PNG+TXT-Karten-Overlays | nein |
-| `--source-type` | `nmea` \| `gpx` \| `kml` (Default `nmea`) | nein |
-| `--name-prefix` | Anzeigename im Viewer (Default: `<feather>_trimmed`) | nein |
-
-> **Hinweis:** Satelliten-Daten werden beim Trimmen nicht mitgenommen
-> (Schema A ist nicht im Feather gespeichert). Wenn der getrimmte Track
-> Satelliten enthalten soll, muss vom Quell-NMEA neu prozessiert werden.
-
----
-
-## Workflow 3 — Synthetic-Track (Zeitachse stauchen)
-
-Anwendungsfall: Autofahrt mit Ladepausen, die für die reine Fahrzeit-
-Auswertung "nie passiert sein sollen". Die Pausen werden entfernt und
-die Zeitachse so geschlossen, dass die Brückenzeit aus der erwarteten
-Geschwindigkeit der Nachbarpunkte interpoliert wird.
+Für volle Kontrolle (z.B. ein einzelner Track per Library):
 
 ```powershell
 $env:PYTHONUTF8 = "1"
 python -c "
 from pathlib import Path
 from gps_pipeline import (
-    load_cut_ranges, create_synthetic_track, save_synthetic,
+    process_nmea, apply_sidecar_cuts, export_for_viewer, find_charts,
 )
-from gps_pipeline.dataframe_io.feather import load_df
-
-df = load_df('output/meine_tour.feather')
-cuts = load_cut_ranges(Path('output/ranges.json'))
-df_synth, meta = create_synthetic_track(
-    df, cuts, interp_n=10, source_name='meine_tour',
+src = Path('data/track.txt')
+df_raw, df_c = process_nmea(src)
+df_raw, df_c, derivation, z_offset = apply_sidecar_cuts(src, df_raw, df_c)
+export_for_viewer(
+    df_c, Path('output/meine_tour'),
+    name_prefix='meine_tour',
+    df_raw=df_raw,
+    dem_paths=[Path('data/linked_sued.tif')],
+    charts=find_charts(Path('data')),
+    derivation=derivation,
+    source_file=src.name,
+    suggested_z_offset=z_offset,
 )
-save_synthetic(df_synth, meta, Path('output/meine_tour'))
-# -> output/meine_tour_synthetic.feather
-# -> output/meine_tour_synthetic.meta.json   (mit GSV-Warnung)
 "
+python view.py output/meine_tour
 ```
-
-Das Suffix `_synthetic` wird erzwungen, damit die Datei klar als
-modifiziert erkennbar bleibt. Die `meta.json` enthält die Cut-Ranges
-und eine explizite Warnung, dass Satellitendaten durch die verschobene
-Zeitachse nicht mehr gültig sind.
 
 ---
 
-## Workflow 4 — Mehrere Tracks vergleichen (Plotly-HTML)
+## Workflow 2 — Track schneiden / Synthetic / Gap (Round-Trip)
+
+Der React-Viewer bearbeitet niemals die Daten selbst. Stattdessen
+schreibt er eine kompakte **Schnittanweisung** (eine kleine JSON-Datei
+neben der Quelldatei), die beim nächsten Pipeline-Lauf direkt aus den
+Originaldaten angewendet wird. Vorteile: Originaldaten bleiben
+unangetastet, Satelliten-Bursts bleiben erhalten, Datei ist nur ein
+paar hundert Byte groß. Wenn der Hoehen-Offset-Slider verschoben wurde,
+wird auch dieser Wert mit gespeichert -- so wird beim Teilen eines
+Tracks die gewuenschte Hoehenanzeige direkt mitgeliefert (reine
+Anzeige, Daten bleiben unveraendert).
+
+```powershell
+# 1. Track erstmalig verarbeiten (Workflow 1) und im Viewer öffnen
+
+# 2. Im Viewer Cuts definieren (+ Cut, Reset, Export)
+#    -> Drei Modi pro Cut:
+#       * trim       (rot)   - Punkte komplett entfernen, Rand des Tracks
+#       * gap        (grün)  - Punkte entfernen, sichtbare Lücke
+#       * synthetic  (blau)  - Punkte entfernen UND Zeitachse zusammenrücken
+#    Edge-Cuts (am Anfang / Ende) werden automatisch zu "trim" gezwungen.
+#    -> Wenn der Hoehen-Offset-Slider != 0 ist, wird er ebenfalls
+#       in die Datei geschrieben (reine Anzeige beim naechsten Laden).
+#    -> Browser lädt <quelldatei>.cuts.json herunter (in Downloads)
+#    -> Datei nach data/ verschieben (gleicher Ordner wie die Quelldatei,
+#       Name muss exakt <quelldatei>.cuts.json sein)
+
+# 3. Pipeline erneut laufen lassen -- die Schnittanweisung wird
+#    automatisch erkannt und auf die Originaldaten angewendet
+$env:PYTHONUTF8 = "1"
+python -m gps_pipeline
+# Output landet unter output/nmea_<basename>/ -- mit korrekten Cuts,
+# Banner-Hinweis und voreingestelltem Hoehen-Offset.
+
+# 4. Track im Viewer ansehen
+$env:PYTHONUTF8 = "1"
+python view.py output/nmea_<basename>
+```
+
+**Anweisungen deaktivieren ohne löschen:** Die Datei einfach umbenennen,
+z.B. `track.txt.cuts.json` → `track.txt.cuts.json.disabled`. Der nächste
+Pipeline-Lauf zeigt dann wieder den Original-Track. Zum Re-Aktivieren
+einfach zurückbenennen.
+
+Das Datei-Format:
+
+```json
+{
+  "source": "track.txt",
+  "n_points_reference": 24138,
+  "z_offset_m": 7,
+  "cut_ranges": [
+    {"start": 0,     "end": 49,    "mode": "trim"},
+    {"start": 200,   "end": 350,   "mode": "synthetic"},
+    {"start": 600,   "end": 700,   "mode": "gap"}
+  ],
+  "created_at": "2026-05-25T17:30:00Z"
+}
+```
+
+`z_offset_m` ist optional. Wenn gesetzt, übernimmt der Viewer beim
+Laden den Wert als Slider-Default und blendet einen Banner-Hinweis ein.
+Die Daten selbst werden nicht modifiziert.
+
+Banner-Severity im Viewer:
+
+| Anweisungs-Mischung | Banner |
+|---|---|
+| Nur `trim` (Rand) | kein Banner |
+| `z_offset_m` ohne Cuts | ⓘ Info — "Höhendarstellung um X m verschoben" |
+| Mindestens ein `gap` (ohne synthetic) | ⓘ Info — "Lücken im Track, Geschwindigkeit dort unzuverlässig" |
+| Mindestens ein `synthetic` | ⚠ Warnung — "Zeitstempel verschoben, Sats unter verschobenen Zeitstempeln" |
+
+---
+
+## Workflow 3 — Mehrere Tracks vergleichen (Plotly-HTML)
 
 ```powershell
 $env:PYTHONUTF8 = "1"

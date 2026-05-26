@@ -326,62 +326,50 @@ $env:PYTHONUTF8 = "1"
 python view.py output
 ```
 
-### Track trimmen (Round-Trip mit dem React-Viewer)
+### Track schneiden (Schnittanweisungs-Round-Trip mit dem React-Viewer)
+
+Drei Cut-Modi mit unterschiedlicher Wirkung auf Daten und Zeitachse:
+
+| Modus | Punkte | Zeitstempel | Sats (Schema A) | Banner |
+|---|---|---|---|---|
+| `trim` | entfernt | unverändert | mit-entfernt | – |
+| `gap` | entfernt | unverändert | mit-entfernt | Info |
+| `synthetic` | entfernt | spätere Punkte vorgeschoben | mit-verschoben | Warn |
+
+Edge-Cuts (start=0 oder end=N-1) werden vom System immer auf `trim`
+gezwungen, da ohne Punkt davor/danach nichts zu überbrücken ist.
 
 ```powershell
-# 1. Im React-Viewer Cuts definieren, "Export" klickt -> ranges.json
-#    (Browser-Download, manuell nach output/ verschieben oder
-#    direkt referenzieren wo der Browser sie ablegt)
-# 2. CLI ausfuehren
+# 1. Track erstmalig prozessieren + im Viewer öffnen (Workflow 1 in README)
+# 2. Im Viewer Cuts setzen, globalen Middle-Mode wählen, Export klicken
+#    -> Browser lädt <quelldatei>.cuts.json runter, in data/ verschieben
+# 3. Pipeline erneut laufen lassen -- Anweisung wird automatisch erkannt
 $env:PYTHONUTF8 = "1"
-python -m gps_pipeline.apply_cuts `
-    --feather output/test.feather `
-    --ranges  output/ranges.json `
-    --output  output_trimmed/ `
-    --dem     data/linked_sued.tif `
-    --charts  data/
-# 3. Im Viewer betrachten
-$env:PYTHONUTF8 = "1"
-python view.py output_trimmed
-```
-
-Das CLI laedt das Schema-C-Feather, wendet die Cuts an und erzeugt ein
-vollstaendiges Viewer-Output-Verzeichnis (track.json + DEM-LODs + charts).
-Satelliten-Daten werden **nicht** mitgetrimmt -- der Output enthaelt
-keine satellites.json, weil Schema A (NMEA-Rohsaetze) nicht im Feather
-liegt.
-
-Programmatisch:
-```python
-from pathlib import Path
-from gps_pipeline.apply_cuts import apply_cuts
-apply_cuts(
-    feather_path=Path("output/test.feather"),
-    ranges_path=Path("output/ranges.json"),
-    output_dir=Path("output_trimmed/"),
-    dem_paths=[Path("data/linked_sued.tif")],
-    chart_dir=Path("data/"),
-)
-```
-
-### Synthetic-Track (Pausen "wegtricksen")
-
-```powershell
-$env:PYTHONUTF8 = "1"
+python -m gps_pipeline
+# oder programmatisch (volle Kontrolle):
 python -c "
 from pathlib import Path
 from gps_pipeline import (
-    load_cut_ranges, create_synthetic_track, save_synthetic,
+    process_nmea, apply_sidecar_cuts, export_for_viewer, find_charts,
 )
-from gps_pipeline.dataframe_io.feather import load_df
-df = load_df('output/test.feather')
-cuts = load_cut_ranges(Path('ranges.json'))
-df_synth, meta = create_synthetic_track(df, cuts, interp_n=10,
-                                        source_name='test')
-save_synthetic(df_synth, meta, Path('output/test'))
-# -> output/test_synthetic.feather + test_synthetic.meta.json
+src = Path('data/test.txt')
+df_raw, df_c = process_nmea(src)
+df_raw, df_c, derivation, z_offset = apply_sidecar_cuts(src, df_raw, df_c)
+export_for_viewer(df_c, Path('output/test'), name_prefix='test',
+                  df_raw=df_raw, charts=find_charts(Path('data')),
+                  derivation=derivation, source_file=src.name,
+                  suggested_z_offset=z_offset)
 "
+# 4. Viewer öffnen -- Banner zeigt aktive Anweisungen
+$env:PYTHONUTF8 = "1"
+python view.py output/test
 ```
+
+Anweisungen deaktivieren ohne löschen: `<quelldatei>.cuts.json` →
+`<quelldatei>.cuts.json.disabled` umbenennen.
+
+Format und Banner-Severity siehe README.md Workflow 2 sowie
+`gps_pipeline/parsing/cut_config.py`.
 
 ## Verlauf der Konstanten und Defaults
 

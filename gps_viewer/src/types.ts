@@ -21,26 +21,17 @@ export interface TrackMeta {
   track_mode: "flight" | "ground";
   has_terrain: boolean;
   has_satellites: boolean;
-  /** Vorschlag fuer den interaktiven Z-Offset-Slider (Default-Wert).
-   *  Aus der Python-seitigen Auto-Diagnose. Optional fuer Backwaerts-
-   *  kompatibilitaet mit aelteren track.json-Dateien. */
+  /** Default-Wert des Hoehen-Offset-Sliders. Kommt aus der
+   *  Schnittanweisung (``z_offset_m``) oder ist 0. */
   suggested_z_offset_m?: number;
-  /** Markiert diesen Track als bearbeitete Version eines anderen.
-   *  Wird als Banner ueber dem Viewer angezeigt. ``null``/fehlend = Original. */
-  derivation?: TrackDerivation | null;
-}
-
-/** Beschreibt, wie ein bearbeiteter Track aus einem Originaltrack entstanden
- *  ist. Wird vom React-Viewer als Warnhinweis-Banner gerendert, damit
- *  klar ist, dass die angezeigten Daten nicht 1:1 die Originalmessung sind. */
-export interface TrackDerivation {
-  /** Welche Art der Bearbeitung: derzeit "trimmed" oder "synthetic". */
-  type: "trimmed" | "synthetic";
-  /** Name des Ursprungs-Tracks (Feather-Basename). */
-  source_name: string;
-  /** Zusatzfelder je nach Typ -- z.B. n_cuts/n_points_removed bei trimmed,
-   *  warning bei synthetic. Frei, vom Viewer weitgehend generisch behandelt. */
-  [key: string]: unknown;
+  /** Dateiname (mit Endung) der Quelldatei. Wird vom Viewer in die
+   *  ``<source>.cuts.json`` geschrieben, die beim Export gespeichert wird. */
+  source_file?: string | null;
+  /** Legacy-Feld -- frueher fuer das DerivationBanner verwendet. Wird
+   *  vom aktuellen Frontend ignoriert (Synthetic-Warnung erscheint
+   *  punktgenau im InfoPanel). Bleibt im Type, damit aeltere track.json
+   *  ohne Warnung gelesen werden koennen. */
+  derivation?: unknown;
 }
 
 export interface QuantileBreaks {
@@ -49,7 +40,7 @@ export interface QuantileBreaks {
   n_quantiles: number;
 }
 
-export type ColorMode = "speed" | "altitude";
+export type ColorMode = "speed" | "altitude" | "flight" | "drone";
 
 export interface TrackPoints {
   lat: number[];
@@ -67,6 +58,9 @@ export interface TrackPoints {
   num_sats?: (number | null)[];
   hdop?: (number | null)[];
   vdop?: (number | null)[];
+  /** True wenn der Timestamp dieses Punktes durch einen synthetic-Cut
+   *  verschoben wurde. Pro-Punkt-Warnung im InfoPanel. */
+  is_synthetic?: boolean[];
 }
 
 export interface TrackData {

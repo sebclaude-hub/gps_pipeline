@@ -42,6 +42,7 @@ export function InfoPanel({ track, activeIdx, zOffset = 0 }: Props) {
   const numSats   = pts.num_sats?.[idx] ?? null;
   const hdop      = pts.hdop?.[idx] ?? null;
   const vdop      = pts.vdop?.[idx] ?? null;
+  const isSynth   = pts.is_synthetic?.[idx] ?? false;
   const total     = pts.lat.length;
 
   return (
@@ -66,6 +67,12 @@ export function InfoPanel({ track, activeIdx, zOffset = 0 }: Props) {
           <Row label="VDOP"        value={vdop !== null ? vdop.toFixed(1) : "–"} />
         </tbody>
       </table>
+      {isSynth && (
+        <div style={synthWarnStyle}>
+          ⚠ Zeitstempel verschoben (Synthetic-Cut). Satellitendaten dieses
+          Punktes gehoeren zu einer anderen tatsaechlichen Zeit.
+        </div>
+      )}
     </div>
   );
 }
@@ -123,4 +130,14 @@ const valueStyle: React.CSSProperties = {
   color: "#ccc",
   paddingBottom: 4,
   verticalAlign: "top",
+};
+const synthWarnStyle: React.CSSProperties = {
+  marginTop: 10,
+  padding: "6px 8px",
+  fontSize: 11,
+  lineHeight: 1.3,
+  background: "#3a1f1f",
+  border: "1px solid #6b2f2f",
+  borderRadius: 4,
+  color: "#f4c0c0",
 };

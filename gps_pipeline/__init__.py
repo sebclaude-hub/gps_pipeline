@@ -10,17 +10,13 @@ from .api import (
     render_visualizations,
     render_comparison,
     export_for_viewer,
+    apply_sidecar_cuts,
 )
 from .parsing.chart import ChartOverlay, find_charts
-from .processing.trim import CutRange, trim_track, load_cut_ranges
-from .processing.synthetic import (
-    create_synthetic_track, save_synthetic, SyntheticMeta,
+from .parsing.cut_config import (
+    CutSpec, CutConfig, load_cut_config, find_cut_config,
 )
-# apply_cuts wird NICHT hier importiert, weil das Modul direkt als
-# ``python -m gps_pipeline.apply_cuts`` aufgerufen wird. Ein doppelter
-# Import (hier + als __main__) loest eine RuntimeWarning aus. Wer
-# apply_cuts als Library-Funktion nutzen will:
-#     from gps_pipeline.apply_cuts import apply_cuts
+from .processing.apply_cut_config import apply_cut_config
 
 __all__ = [
     "process_nmea",
@@ -29,12 +25,12 @@ __all__ = [
     "render_visualizations",
     "render_comparison",
     "export_for_viewer",
+    "apply_sidecar_cuts",
     "ChartOverlay",
     "find_charts",
-    "CutRange",
-    "trim_track",
-    "load_cut_ranges",
-    "create_synthetic_track",
-    "save_synthetic",
-    "SyntheticMeta",
+    "CutSpec",
+    "CutConfig",
+    "load_cut_config",
+    "find_cut_config",
+    "apply_cut_config",
 ]

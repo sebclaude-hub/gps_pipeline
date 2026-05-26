@@ -10,7 +10,10 @@ Die eigentlichen API-Funktionen liegen in ``api.py``. Direkt importieren via::
 
 from pathlib import Path
 
-from .api import process_nmea, process_gpx, process_kml, render_visualizations
+from .api import (
+    process_nmea, process_gpx, process_kml,
+    render_visualizations, export_for_viewer, apply_sidecar_cuts,
+)
 from .parsing.chart import find_charts, is_chart_config
 
 
@@ -56,16 +59,41 @@ def main() -> None:
         print(f"Keine NMEA-, GPX- oder KML-Dateien in {input_dir} gefunden.")
         return
 
+    def _viewer_dir(prefix: str) -> Path:
+        # Pro Track ein Unterordner unter output/, damit mehrere Tracks
+        # nicht ihre track.json gegenseitig ueberschreiben.
+        d = output_dir / prefix
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
     for path in nmea_files:
         prefix = f"nmea_{path.stem}"
         df_raw, df_c = process_nmea(path)
+        df_raw, df_c, derivation, z_offset = apply_sidecar_cuts(
+            path, df_raw, df_c)
         render_visualizations(df_c, output_dir,
-                              name_prefix=prefix, df_raw=df_raw, dem_paths=dem_paths)
+                              name_prefix=prefix, df_raw=df_raw,
+                              dem_paths=dem_paths)
+        export_for_viewer(
+            df_c, _viewer_dir(prefix),
+            name_prefix=prefix, df_raw=df_raw,
+            dem_paths=dem_paths, charts=charts,
+            derivation=derivation, source_file=path.name,
+            suggested_z_offset=z_offset, source_type="nmea",
+        )
 
     for path in gpx_files:
         prefix = f"gpx_{path.stem}"
         df_c = process_gpx(path)
-        render_visualizations(df_c, output_dir, name_prefix=prefix, dem_paths=dem_paths)
+        _, df_c, derivation, z_offset = apply_sidecar_cuts(path, None, df_c)
+        render_visualizations(df_c, output_dir, name_prefix=prefix,
+                              dem_paths=dem_paths)
+        export_for_viewer(
+            df_c, _viewer_dir(prefix),
+            name_prefix=prefix, dem_paths=dem_paths, charts=charts,
+            derivation=derivation, source_file=path.name,
+            suggested_z_offset=z_offset, source_type="gpx",
+        )
 
     for path in kml_files:
         prefix = f"kml_{path.stem}"
@@ -73,7 +101,15 @@ def main() -> None:
         if df_c.empty:
             print(f"Track {path.name} ist leer (parse fehlgeschlagen?), wird übersprungen.")
             continue
-        render_visualizations(df_c, output_dir, name_prefix=prefix, dem_paths=dem_paths)
+        _, df_c, derivation, z_offset = apply_sidecar_cuts(path, None, df_c)
+        render_visualizations(df_c, output_dir, name_prefix=prefix,
+                              dem_paths=dem_paths)
+        export_for_viewer(
+            df_c, _viewer_dir(prefix),
+            name_prefix=prefix, dem_paths=dem_paths, charts=charts,
+            derivation=derivation, source_file=path.name,
+            suggested_z_offset=z_offset, source_type="kml",
+        )
 
     print(f"\nFertig. Output in {output_dir.resolve()}")
 

@@ -13,7 +13,7 @@ from typing import Optional
 import pandas as pd
 
 from .config import (
-    TRACK_Z_OFFSET, DEM_SMOOTH,
+    DEM_SMOOTH,
     DEM_TARGET_PIXEL_SIZE_M, DEM_MAX_PIXELS_PER_AXIS, DEM_MAX_HTML_MB,
 )
 from .dataframe_io.feather import save_df
@@ -26,7 +26,7 @@ from .processing.consolidate import consolidate
 from .processing.enrich import enrich_speed
 from .processing.enrich_terrain import enrich_terrain_elevation
 from .terrain.dem import (
-    load_dems, get_track_bounds, compare_track_dem, reduce_dem_to_fit,
+    load_dems, get_track_bounds, reduce_dem_to_fit,
 )
 from .visualization.three_d import visualize_3d
 from .visualization.track_with_satellites import render_track_with_satellites
@@ -35,6 +35,57 @@ from .export.json_export import export_track_json, export_satellite_json
 from .export.dem_lod import export_dem_lods
 from .export.chart_export import export_charts
 from .parsing.chart import ChartOverlay
+from .parsing.cut_config import find_cut_config, load_cut_config
+from .processing.apply_cut_config import apply_cut_config
+
+
+def apply_sidecar_cuts(
+    source_path: Path,
+    df_raw: Optional[pd.DataFrame],
+    df_c: pd.DataFrame,
+) -> tuple[Optional[pd.DataFrame], pd.DataFrame, Optional[dict], float]:
+    """Schaut neben ``source_path`` nach ``<basename>.cuts.json`` und
+    wendet die Schnittanweisung an, falls vorhanden.
+
+    Liefert ``(df_raw, df_c, derivation, z_offset_m)`` zurueck:
+
+    * ``derivation`` ist ein Banner-Dict (Trim / Gap / Synthetic), oder
+      ``None`` wenn nichts angewendet wurde.
+    * ``z_offset_m`` ist der aus der Datei gelesene Anzeige-Offset (Default
+      0.0). Wird vom Backend NICHT auf die Track-Daten angewendet -- der
+      Viewer initialisiert damit nur seinen Hoehen-Offset-Slider.
+
+    Diese Funktion ist die High-Level-Bruecke zwischen Viewer-Export
+    (Schnittanweisung) und Pipeline-Anwendung. Sowohl ``__main__`` als
+    auch externe Library-Nutzer rufen sie typischerweise direkt nach
+    ``process_nmea/gpx/kml`` auf.
+    """
+    cuts_path = find_cut_config(source_path)
+    if cuts_path is None:
+        return df_raw, df_c, None, 0.0
+    print(f"Schnittanweisung gefunden: {cuts_path.name}")
+    config = load_cut_config(cuts_path)
+    df_raw_new, df_c_new, derivation = apply_cut_config(
+        df_raw, df_c, config,
+        source_name=Path(config.source).stem,
+    )
+    z_offset_m = float(config.z_offset_m) if config.z_offset_m is not None else 0.0
+    if z_offset_m != 0.0:
+        print(f"  z_offset_m aus Schnittanweisung: {z_offset_m:+.1f} m "
+              f"(Default fuer Viewer-Slider, Daten unveraendert)")
+        # Wenn nur z_offset gesetzt ist (keine Cuts), trotzdem ein
+        # leichtes derivation erzeugen, damit der Viewer im Banner darauf
+        # hinweisen kann.
+        if derivation is None:
+            derivation = {
+                "type": "z_offset",
+                "severity": "info",
+                "source_name": Path(config.source).stem,
+                "z_offset_m": round(z_offset_m, 2),
+            }
+        else:
+            derivation = {**derivation, "z_offset_m": round(z_offset_m, 2)}
+    return df_raw_new, df_c_new, derivation, z_offset_m
 
 
 def process_nmea(file_path: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -88,7 +139,6 @@ def render_visualizations(
     name_prefix: str,
     df_raw: Optional[pd.DataFrame] = None,
     dem_paths: Optional[list] = None,
-    z_offset_mode=None,
 ) -> None:
     """Erzeugt die Standard-Visualisierungen für einen Schema-C-Track.
 
@@ -97,27 +147,15 @@ def render_visualizations(
     werden bei groessen Tracks/DEMs schwergewichtig und sind primaer noch
     als Fallback und fuer einfache Vergleichs-Snapshots gedacht.
 
-    Parameters
-    ----------
-    df_c : pd.DataFrame
-        Schema-C-DataFrame.
-    output_dir : Path
-        Zielverzeichnis für die HTML-Dateien.
-    name_prefix : str
-        Wird Bestandteil der Output-Dateinamen.
-    df_raw : pd.DataFrame, optional
-        Schema-A-DataFrame (nur für NMEA, mit GSV-Daten).
-    dem_paths : list of Path, optional
-        Liste von DEM-GeoTIFF-Dateien.
-    z_offset_mode : "auto" | "none" | None | float, optional
-        Überschreibt config.TRACK_Z_OFFSET pro Aufruf.
+    Hoehen-Offset wird NICHT mehr automatisch ermittelt -- der Track wird
+    in den HTML-Plots immer mit seinen Original-Hoehen dargestellt. Wer
+    eine korrigierte Anzeige braucht, nutzt den React-Viewer mit dem
+    interaktiven Z-Offset-Slider.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-
-    mode = z_offset_mode if z_offset_mode is not None else TRACK_Z_OFFSET
+    track_z_offset = 0.0
 
     dem_data = None
-    track_z_offset = 0.0
     if dem_paths:
         bounds = get_track_bounds(df_c)
         dem_data = load_dems(
@@ -132,52 +170,6 @@ def render_visualizations(
         else:
             # HTML-Größen-Bremse
             dem_data = reduce_dem_to_fit(dem_data, DEM_MAX_HTML_MB)
-
-            if mode == "none" or mode is None or mode == 0:
-                print(f"Höhen-Offset: deaktiviert (Modus '{mode}'). "
-                      f"Track wird ohne Korrektur dargestellt.")
-                track_z_offset = 0.0
-            elif mode == "auto":
-                print("Höhen-Offset: automatische Diagnose...")
-                stats = compare_track_dem(df_c, dem_paths)
-                if stats:
-                    # Sicherer Auto-Offset, zwei Regeln:
-                    #
-                    # 1. Outlier-robust: 5%-Perzentil statt strikt min().
-                    #    Ein einzelner GPS-verbuggter Punkt soll nicht den
-                    #    gesamten Track unnoetig hochheben.
-                    #
-                    # 2. Asymmetrisch: das Clamping darf nur Abwaerts-Shifts
-                    #    reduzieren, niemals einen NEUEN Aufwaerts-Shift
-                    #    erzeugen. Ein sauberer MSL-Bodentrack hat z.B.
-                    #    Median 0, P5 ≈ -2 (GPS-Rauschen). Ohne diese Regel
-                    #    wuerden wir ihn um 2 m anheben, obwohl er keinen
-                    #    Offset braucht.
-                    #
-                    # Heisst: safe_floor wird auf 0 gedeckelt, falls positiv.
-                    # Wenn der Median (raw) selbst positiv ist -- der Track
-                    # liegt im Schnitt unter DEM (Kalibrierung noetig) --
-                    # wird er weiterhin angewendet, das Clamping greift dort
-                    # gar nicht erst.
-                    raw = stats["suggested_offset"]
-                    safe_floor = min(0.0, -stats["p5_diff"])
-                    track_z_offset = max(raw, safe_floor)
-                    if track_z_offset > raw + 0.5:
-                        print(f"  -> track_z_offset = {track_z_offset:+.1f} m "
-                              f"(Median-Vorschlag {raw:+.1f} m wurde auf "
-                              f"{safe_floor:+.1f} m gedeckelt, damit "
-                              f"praktisch kein Punkt unter das DEM rutscht)")
-                    else:
-                        print(f"  -> track_z_offset = {track_z_offset:+.1f} m")
-            elif isinstance(mode, (int, float)):
-                track_z_offset = float(mode)
-                print(f"Höhen-Offset: fester Wert {track_z_offset:+.1f} m.")
-            else:
-                print(f"Warnung: unbekannter z_offset_mode '{mode}', verwende 'auto'.")
-                stats = compare_track_dem(df_c, dem_paths)
-                if stats:
-                    track_z_offset = stats["suggested_offset"]
-
             df_c = enrich_terrain_elevation(df_c, dem_paths,
                                             track_z_offset=track_z_offset)
 
@@ -216,9 +208,10 @@ def export_for_viewer(
     df_raw: Optional[pd.DataFrame] = None,
     dem_paths: Optional[list] = None,
     source_type: str = "nmea",
-    z_offset_mode=None,
+    suggested_z_offset: float = 0.0,
     charts: Optional[list[ChartOverlay]] = None,
     derivation: Optional[dict] = None,
+    source_file: Optional[str] = None,
 ) -> Path:
     """Exportiert Track + DEM als statische JSON-Dateien für den React-Viewer.
 
@@ -242,8 +235,11 @@ def export_for_viewer(
         GeoTIFF-Dateien für die Terrain-Visualisierung.
     source_type : str
         "nmea" | "gpx" | "kml" — wird in track.json gespeichert.
-    z_offset_mode : "auto" | "none" | None | float, optional
-        Überschreibt config.TRACK_Z_OFFSET für DEM-Enrichment.
+    suggested_z_offset : float, optional
+        Default-Wert des interaktiven Hoehen-Offset-Sliders im Viewer.
+        REINE ANZEIGE -- die Track-Daten werden nicht modifiziert. Wenn
+        != 0, kommt der Wert typischerweise aus einer ``.cuts.json`` und
+        der Banner kennzeichnet das. Default 0.
     charts : list of ChartOverlay, optional
         Karten-Overlays (PNG + georeferenzierte Eckkoordinaten), die ueber
         das Terrain gedrapt im Viewer angezeigt werden. Werden ueber
@@ -264,35 +260,22 @@ def export_for_viewer(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    mode = z_offset_mode if z_offset_mode is not None else TRACK_Z_OFFSET
-
-    # Terrain-Enrichment (falls DEM vorhanden) — identische Logik wie render_visualizations
-    dem_data_lod = None  # Zwischenspeicher der rohen DEM-Bounds für LOD-Export
+    # Track-Enrichment: NUR fuer terrain_elevation-Spalte, OHNE Offset
+    # auf die Datenpunkte anzuwenden. Der Offset ist reine Anzeige-Sache
+    # im Viewer-Slider.
+    dem_data_lod = None
     if dem_paths:
         bounds = get_track_bounds(df_c)
-        track_z_offset = 0.0
-
-        if mode in ("none", None, 0):
-            track_z_offset = 0.0
-        elif mode == "auto":
-            stats = compare_track_dem(df_c, dem_paths)
-            if stats:
-                # Siehe ausfuehrlichen Kommentar in render_visualizations:
-                # outlier-robust via P5, asymmetrisch ueber min(0, ...).
-                raw = stats["suggested_offset"]
-                safe_floor = min(0.0, -stats["p5_diff"])
-                track_z_offset = max(raw, safe_floor)
-        elif isinstance(mode, (int, float)):
-            track_z_offset = float(mode)
-
-        df_c = enrich_terrain_elevation(df_c, dem_paths, track_z_offset=track_z_offset)
+        df_c = enrich_terrain_elevation(df_c, dem_paths, track_z_offset=0.0)
         dem_data_lod = bounds   # nur Bounds weitergeben, LOD-Export macht eigene Loads
 
-    # 1. track.json -- mit suggested_z_offset als Slider-Default fuer den Viewer
+    # 1. track.json -- suggested_z_offset wird vom Viewer als Slider-Default
+    #    uebernommen (kommt typischerweise aus einer .cuts.json).
     track_path = output_dir / "track.json"
     export_track_json(df_c, track_path, name_prefix=name_prefix,
-                      suggested_z_offset=track_z_offset,
-                      derivation=derivation)
+                      suggested_z_offset=float(suggested_z_offset),
+                      derivation=derivation,
+                      source_file=source_file)
 
     # Patch: source_type in Metadaten korrigieren
     import json as _json2

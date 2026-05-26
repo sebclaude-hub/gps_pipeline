@@ -1,18 +1,155 @@
 # Arbeitsnotizen für Claude — GPS-Viewer-Projekt
 
-**Zuletzt aktualisiert:** 2026-05-25 abend
+**Zuletzt aktualisiert:** 2026-05-26 abend
 **Aktueller Branch:** master
-**Letzter Commit:** `3af5d33` ("feat: cut_ranges.json in data/ + Derivation-Banner")
 **GitHub:** https://github.com/sebclaude-hub/gps_pipeline
 
 ---
 
-## ⏸ SESSION-RESUMPTION — was am 26. Mai ansteht
+## Architektur-Stand nach Schnittanweisungs-Refactor (26. Mai 2026)
 
-**Wir haben einen ausführlich diskutierten Refactor-Plan, aber NICHTS
-davon angefangen zu implementieren.** Der User musste in die Nacht,
-ich soll den Plan so abspeichern dass die nächste Session ihn nahtlos
-fortsetzt.
+Der grosse Refactor zum Schnittanweisungs-Workflow ist durch, getestet
+und gepusht (siehe `CHANGES.md` Schritt 7). Die folgende Notiz
+beschreibt den Architektur-Stand nach diesem Refactor zur schnellen
+Orientierung in zukuenftigen Sessions.
+
+### Was ist im Code (Schritte 1-7 + Folge-Korrekturen A/B/C/D)
+
+**Backend — neue Module:**
+- `gps_pipeline/parsing/cut_config.py` — `CutConfig`, `CutSpec`,
+  `load_cut_config`, `find_cut_config`. Validierung inkl. `z_offset_m`.
+  `force_edge_trim()` zwingt Edge-Cuts (start=0 oder end=N-1) auf
+  Modus `"trim"`.
+- `gps_pipeline/processing/apply_cut_config.py` — `apply_cut_config(
+  df_raw, df_c, config) -> (df_raw, df_c, derivation)`. Behandelt
+  alle drei Modi auf BEIDEN Schemata (df_raw via Timestamps gefiltert
+  und mit-geshiftet). Edge-Detection und Derivation-Bau (Banner-Dict).
+
+**Backend — geänderte Funktionen:**
+- `api.apply_sidecar_cuts(source_path, df_raw, df_c) -> (df_raw, df_c,
+  derivation, z_offset_m)` (4-tuple!) — schaut neben source_path nach
+  `<basename>.cuts.json`, wendet an. Wenn nur z_offset gesetzt ist,
+  baut sie ein `derivation = {"type": "z_offset", ...}` für Banner.
+- `api.export_for_viewer` — Parameter `z_offset_mode` ENTFERNT;
+  ersetzt durch `suggested_z_offset: float` (Default 0). Kein
+  Auto-Offset mehr — Backend rührt Track-Höhen nicht mehr an.
+- `api.render_visualizations` — `z_offset_mode` ebenfalls weg, immer 0.
+- `export.json_export.export_track_json` — neuer Parameter `source_file:
+  str` (in `meta.source_file` exportiert).
+
+**Backend — entfernt:**
+- `gps_pipeline/apply_cuts.py` (CLI obsolet)
+- `gps_pipeline/processing/trim.py` (Logik in apply_cut_config)
+- `gps_pipeline/processing/synthetic.py` (dito)
+
+**`__main__.py` — neue Logik pro Track:**
+1. `process_*(path)` — wie bisher
+2. `apply_sidecar_cuts(path, df_raw, df_c)` — sucht und wendet an
+3. `render_visualizations(...)` — Plotly-HTML in `output/`
+4. `export_for_viewer(..., output_dir=output/<prefix>/,
+   source_file=path.name, suggested_z_offset=z_offset)` — pro Track
+   ein eigener Unterordner (sonst überschreibt sich `track.json`)
+
+**Frontend:**
+- `useRangeSelection` — `CutMode = "trim" | "gap" | "synthetic"`,
+  per-Cut-Mode-State, globaler `setMiddleMode`, Edge-Auto-Detection
+  (start=0/end=N-1 → trim forciert, auch beim Dragging).
+- `RangeSelector` — Pill-Switch "Lücke / Zeit verschieben", Farben
+  je Modus (rot/grün/blau, Schraffur für Edge-Trim). Export schreibt
+  `<source_file>.cuts.json` mit optionalem `z_offset_m`-Feld.
+  Export-Button aktiv wenn (Cuts > 0) OR (zOffset != 0). Disabled
+  mit Tooltip wenn `meta.source_file` fehlt.
+- `TrackViewer` — Cut-Paths-PathLayer farbcodiert pro Modus.
+- `DerivationBanner` — drei Severities:
+  * `null` (nur trim) → kein Banner
+  * `info` (gap, oder z_offset_only) → blau-grau, ⓘ
+  * `warn` (synthetic, oder Legacy trimmed) → bernstein/rot, ⚠
+  Synthetic gewinnt visuell bei Misch-Cuts. Z-Offset-Hinweis wird
+  bei allen Banner-Typen als Zusatztext eingeblendet wenn != 0.
+- `App.tsx` reicht `meta.source_file` und `zOffset` an RangeSelector.
+
+### Wichtige Detail-Entscheidungen
+
+- **Subdir pro Track**: `__main__.py` schreibt Viewer-Output in
+  `output/<prefix>/track.json`, NICHT `output/track.json`. Sonst
+  würden mehrere Tracks die track.json gegenseitig überschreiben.
+- **`python view.py output/<prefix>/`** ist jetzt der Standard-Aufruf.
+  `python view.py output` (ohne Subdir) gibt eine Warnung und findet
+  keine manifest.json.
+- **z_offset ist REINE ANZEIGE.** Backend rührt Track-Höhen nicht an
+  (`enrich_terrain_elevation` mit `track_z_offset=0.0`). Der Wert
+  wandert nur in `meta.suggested_z_offset_m`, der Viewer-Slider
+  startet damit.
+- **Wort "Sidecar"** wurde aus User-facing Texten (README,
+  ARCHITECTURE, CHANGES, Viewer-Hint-Popup) entfernt. Stattdessen
+  "Schnittanweisungen" / "Datei neben der Quelldatei". Interne
+  Funktionsnamen (`apply_sidecar_cuts`, `find_cut_config`) bleiben.
+
+### E2E-Test bestanden
+
+Test-Datei `data/2026-05-02_16-54-51_rx_log.txt.cuts.json` enthält
+**alle Sonderfälle gleichzeitig**:
+- 2 trim-Cuts (Edge)
+- 1 gap-Cut bei 5000..6000
+- 1 synthetic-Cut bei 12000..13000 (Pause 155s → Bridge 157s → -2s)
+- `z_offset_m: 7`
+
+Ergebnis nach `python -m gps_pipeline`:
+- 24138 → 19136 Punkte (5002 entfernt)
+- df_raw 80003 → 63486 (Schema A korrekt über Timestamps gefiltert)
+- satellites.json: **3019 Bursts erhalten** (Sats werden NICHT mehr
+  verworfen wie früher im Synthetic-Pfad)
+- meta.source_file = "2026-05-02_16-54-51_rx_log.txt" ✓
+- meta.suggested_z_offset_m = 7.0 ✓
+- derivation.type = "synthetic", severity = "warn",
+  z_offset_m = 7.0, n_trim_cuts=2, n_gap_cuts=1, n_synthetic_cuts=1 ✓
+- Severity-Precedence-Check: nur-trim→null, nur-gap→info, mix→warn ✓
+- Z-offset-only-Pfad (kein Cut): derivation.type = "z_offset", info ✓
+
+### Letzter UI-Probelauf-Bug (behoben)
+
+User startete `python view.py output` (ohne Subdir). Dort lag eine
+alte `output/track.json` (mit `source_file: null`) aus einem früheren
+Test-Lauf. Viewer lud die → "Quelldatei unbekannt", Export disabled.
+**Lösung:** alte Top-Level-Dateien in `output/` aufgeräumt. Korrekter
+Aufruf ist `python view.py output/nmea_2026-05-02_16-54-51_rx_log`.
+
+### Nächster Schritt morgen
+
+1. Diese Notiz lesen
+2. UI-Probelauf bestätigen: `python view.py
+   output/nmea_2026-05-02_16-54-51_rx_log`
+   - Banner rot, "Synthetic-Cut aktiv", Hinweis "+7.0 m verschoben"
+   - Cut-Balken farbig (rot-schraffiert / grün / blau)
+   - Z-Slider startet bei +7m, nicht 0
+   - Pill-Switch "Lücke / Zeit verschieben" funktioniert
+   - Export-Button beschriftet `Export (z=+7.0m)`
+3. Wenn alles passt: **EINEN Commit für das ganze Refactor** machen
+   und pushen. Commit-Message muss die 7 Schritte + die 3 Folge-
+   Korrekturen (A/B/C) bündeln.
+
+### Optional (für später, NICHT jetzt)
+
+- **`view.py` Auto-Discovery**: wenn `output_dir/manifest.json` fehlt
+  aber `output_dir/<subdir>/manifest.json` existiert, automatisch
+  dorthin routen. Wäre user-freundlicher als der jetzige
+  Subdir-Zwang.
+- **GPX/KML-Pipeline**: bisher nur NMEA real E2E-getestet. GPX/KML-
+  Pfad ist im Code parallel zu NMEA, sollte aber theoretisch
+  funktionieren (df_raw=None, derivation ohne Sats).
+- **TRACK_Z_OFFSET in `config.py`**: Konstante steht noch drin
+  obwohl `api.py` sie nicht mehr nutzt. `three_d.py` und
+  `enrich_terrain.py` referenzieren sie aber noch. Aufräumen, wenn
+  Legacy-Plotly-Pfad mal überarbeitet wird.
+
+---
+
+## ⏸ ARCHIV: SESSION-RESUMPTION 25. Mai (Plan VOR der Implementation)
+
+**Diese Notiz beschrieb den Plan, der heute (26. Mai) abgearbeitet
+wurde.** Hier zur historischen Nachvollziehbarkeit der ursprünglichen
+Entscheidungen aufbewahrt. Stand des Codes oben spiegelt die
+abgeschlossene Umsetzung wider.
 
 ### Diskutierter Stand vor der Pause
 

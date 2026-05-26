@@ -72,9 +72,15 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
     [altBase, Z_SCALE, zOffset]
   );
 
-  // Rang-Position pro Punkt für den aktiven Color-Mode
+  // Track-Linie: bei "flight" und "drone" bleibt sie immer auf
+  // Speed-Plasma (Schwellen-Klassifikation passiert nur am Curtain).
+  // Fuer "speed"/"altitude" folgt sie dem Mode.
+  const trackColorMode: ColorMode =
+    (colorMode === "flight" || colorMode === "drone") ? "speed" : colorMode;
+
+  // Rang-Position pro Punkt für den effektiven Track-Color-Mode
   const rankPositions = useMemo(() => {
-    const values = colorMode === "speed"
+    const values = trackColorMode === "speed"
       ? track.points.speed_kmh
       : track.points.alt;
     return computeRankPositions(values);
@@ -126,6 +132,12 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
     if (cutRanges.length === 0) return [];
     const { lon, lat, alt } = track.points;
     const n = lon.length;
+    // Farben pro Cut-Mode (passend zu RangeSelector). RGBA-Tupel fuer deck.gl.
+    const colorByMode: Record<CutRange["mode"], [number, number, number, number]> = {
+      trim:      [220, 60, 60, 230],
+      gap:       [70, 180, 90, 230],
+      synthetic: [80, 130, 220, 230],
+    };
     return cutRanges
       .map((r) => {
         const lo = Math.max(0, r.start);
@@ -135,9 +147,9 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
         for (let i = lo; i <= hi; i++) {
           path.push([lon[i], lat[i], exagAlt(alt[i])]);
         }
-        return { id: r.id, path };
+        return { id: r.id, path, color: colorByMode[r.mode] };
       })
-      .filter((x): x is { id: string; path: [number, number, number][] } => x !== null);
+      .filter((x): x is { id: string; path: [number, number, number][]; color: [number, number, number, number] } => x !== null);
   }, [cutRanges, track, exagAlt]);
 
   const layers = useMemo(() => {
@@ -155,7 +167,7 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
       }
     }
 
-    if (showCurtain) result.push(makeCurtainLayer(curtainSegments, colorMode));
+    if (showCurtain) result.push(makeCurtainLayer(curtainSegments, colorMode, zOffset));
 
     result.push(new PathLayer({
       id: "track-path",
@@ -178,12 +190,13 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
         id: "cut-paths",
         data: cutPaths,
         getPath: (d: any) => d.path,
-        getColor: [220, 60, 60, 230],
+        getColor: (d: any) => d.color,
         getWidth: 5,
         widthUnits: "pixels",
         pickable: false,
         updateTriggers: {
           getPath: [cutPaths],
+          getColor: [cutPaths],
         },
       }));
     }
@@ -272,6 +285,8 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
     // sichtbaren Z-Wert in der 3D-Szene uebereinstimmt.
     const altShown = (alt !== null) ? alt + zOffset : null;
 
+    const isSynth = track.points.is_synthetic?.[idx] ?? false;
+
     // Minimal-HTML -- nur die wichtigsten Werte, damit der Tooltip kompakt
     // bleibt und den Blick auf den Track nicht zu sehr verdeckt.
     const lines: string[] = [];
@@ -279,6 +294,7 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
     lines.push(formatSpeed(speed));
     lines.push(`MSL ${formatAltitude(altShown)}`);
     if (above !== null) lines.push(`ueG ${above.toFixed(0)} m`);
+    if (isSynth) lines.push('<span style="color:#f4c0c0">&#9888; Zeitstempel verschoben</span>');
 
     return {
       html: lines.map((l) => `<div>${l}</div>`).join(""),

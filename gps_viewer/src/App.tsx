@@ -8,12 +8,12 @@ import { SkyPlot } from "./components/SkyPlot";
 import { TrackSlider } from "./components/TrackSlider";
 import { ColorLegend } from "./components/ColorLegend";
 import { ToggleSwitch } from "./components/ToggleSwitch";
+import { ColorModeSelect } from "./components/ColorModeSelect";
 import { ZScaleButtons } from "./components/ZScaleButtons";
 import { InfoPanel } from "./components/InfoPanel";
 import { InfoModeButtons, type InfoMode } from "./components/InfoModeButtons";
 import { OffsetSlider } from "./components/OffsetSlider";
 import { RangeSelector } from "./components/RangeSelector";
-import { DerivationBanner } from "./components/DerivationBanner";
 import { useRangeSelection } from "./hooks/useRangeSelection";
 import type { ColorMode } from "./types";
 
@@ -106,13 +106,6 @@ export default function App() {
 
       <div style={contentStyle}>
         <div style={{ flex: 1, position: "relative", minWidth: 0 }}>
-          {/* Warnhinweis-Banner, falls dieser Track eine bearbeitete
-              Version eines anderen ist (Trim, Synthetic, ...). Liegt
-              ueber dem deck.gl-Canvas, blockiert aber dank
-              pointerEvents:none keine Maus-Interaktion. */}
-          {meta.derivation && (
-            <DerivationBanner derivation={meta.derivation} />
-          )}
           <TrackViewer
             track={track}
             dem={demLod}
@@ -129,12 +122,10 @@ export default function App() {
             zOffset={zOffset}
           />
           <div style={togglesStyle}>
-            <ToggleSwitch<ColorMode>
+            <ColorModeSelect
               value={colorMode}
-              options={["speed", "altitude"]}
-              labels={["km/h", "Höhe"]}
               onChange={setColorMode}
-              title="Farbgebung umschalten"
+              enableTerrainModes={meta.has_terrain}
             />
             <ToggleSwitch<CurtainMode>
               value={curtainMode}
@@ -214,6 +205,8 @@ export default function App() {
         totalPoints={track.points.lat.length}
         activeIdx={activeIdx}
         api={rangeApi}
+        sourceFile={meta.source_file ?? null}
+        zOffset={zOffset}
       />
       <TrackSlider
         track={track}

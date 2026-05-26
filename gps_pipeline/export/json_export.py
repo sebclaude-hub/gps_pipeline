@@ -111,6 +111,7 @@ def export_track_json(
     n_quantiles: int = DEFAULT_QUANTILES,
     suggested_z_offset: float = 0.0,
     derivation: Optional[dict] = None,
+    source_file: Optional[str] = None,
 ) -> None:
     """Serialisiert einen Schema-C-DataFrame nach track.json.
 
@@ -135,6 +136,11 @@ def export_track_json(
         Markiert diesen Track als bearbeitete Version eines anderen.
         Wird in ``meta.derivation`` exportiert und vom React-Viewer als
         Warnhinweis-Banner angezeigt.
+    source_file : str, optional
+        Dateiname (mit Endung) der Quelldatei, aus der der Track stammt.
+        Wird in ``meta.source_file`` exportiert -- der Viewer schreibt
+        diesen Namen in die ``.cuts.json``, damit die Schnittanweisung
+        eindeutig der Quelldatei zugeordnet werden kann.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -157,6 +163,10 @@ def export_track_json(
     num_sats = df_c.get("gga_num_sats", pd.Series(np.nan, index=df_c.index))
     hdop = df_c.get("gga_hdop", pd.Series(np.nan, index=df_c.index))
     vdop = df_c.get("gsa_vdop", pd.Series(np.nan, index=df_c.index))
+    # is_synthetic markiert Punkte, deren Timestamp durch einen
+    # synthetic-Cut verschoben wurde. Bei reinen trim/gap-Tracks oder
+    # ohne Cut komplett False.
+    is_synth = df_c.get("is_synthetic", pd.Series(False, index=df_c.index))
 
     # Timestamps → Unix ms (int)
     ts = pd.to_datetime(df_c["timestamp_utc"], utc=True)
@@ -202,6 +212,9 @@ def export_track_json(
             # Markiert den Track als bearbeitete Version (Trim, Synthetic, ...).
             # Wird vom Viewer als Banner angezeigt. None/leer = Originaltrack.
             "derivation": derivation,
+            # Dateiname der Quelldatei -- der Viewer schreibt ihn beim
+            # Cut-Export in die .cuts.json zurueck.
+            "source_file": source_file,
         },
         "quantile_breaks": {
             "speed_kmh": breaks,
@@ -223,6 +236,7 @@ def export_track_json(
             "num_sats":     _safe_list(num_sats, dtype=int),
             "hdop":         _safe_float_list(hdop, 1),
             "vdop":         _safe_float_list(vdop, 1),
+            "is_synthetic": [bool(v) for v in is_synth.fillna(False).tolist()],
         },
     }
 

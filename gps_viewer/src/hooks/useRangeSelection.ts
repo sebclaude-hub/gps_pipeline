@@ -1,20 +1,22 @@
 /**
  * useRangeSelection -- State-Management fuer Cut-Ranges (auszuschneidende
- * Index-Bereiche).
+ * Index-Bereiche) mit Modus pro Cut.
  *
  * Modell
  * ------
  * Standardmaessig wird der ganze Track behalten. Cut-Ranges sind
- * Index-Intervalle ``[start, end]`` (inklusive), die beim Export
- * ausgeschnitten werden.
+ * Index-Intervalle ``[start, end]`` (inklusive) mit einem Modus:
  *
- * Beispiele:
- *   - Reines Trimming (Anfang/Ende abschneiden):
- *       cuts = [{start: 0, end: 49}, {start: 580, end: 599}]
- *   - Eine Zwischenlandung entfernen:
- *       cuts = [{start: 200, end: 350}]
- *   - Anfang/Ende UND eine Pause:
- *       cuts = [{start: 0, end: 49}, {start: 200, end: 350}, {start: 580, end: 599}]
+ *   * ``trim``      -- Punkte entfernen. Erzwungen fuer Edge-Cuts
+ *                       (start=0 oder end=N-1), weil dort nichts zu
+ *                       ueberbruecken ist.
+ *   * ``gap``       -- Punkte entfernen, Lücke im Track sichtbar lassen.
+ *   * ``synthetic`` -- Punkte entfernen UND nachfolgende Zeitstempel
+ *                       nach vorne schieben.
+ *
+ * Die UI bietet einen globalen Toggle ("Middle-Mode") fuer ALLE
+ * Middle-Cuts gemeinsam (kein Mischbetrieb in der UI -- das Datenformat
+ * unterstuetzt es aber fuer kuenftige Erweiterungen).
  *
  * **Cuts duerfen sich NICHT ueberlappen.** Beim Anlegen sucht der Hook
  * automatisch eine freie Luecke um den Center-Index herum; beim Drag
@@ -23,6 +25,9 @@
 
 import { useCallback, useState } from "react";
 
+export type CutMode = "trim" | "gap" | "synthetic";
+export type MiddleMode = "gap" | "synthetic";
+
 export interface CutRange {
   /** Stabiler Schluessel fuer React-Listen. */
   id: string;
@@ -30,6 +35,10 @@ export interface CutRange {
   start: number;
   /** Letzter zu entfernender Index (inklusive). */
   end: number;
+  /** Modus dieses einzelnen Cuts. Edge-Cuts (start=0 / end=N-1) sind
+   *  immer ``trim`` -- der Hook erzwingt das in ``updateRange`` und
+   *  ``setMiddleMode``. */
+  mode: CutMode;
 }
 
 let _idCounter = 0;
@@ -38,8 +47,16 @@ function nextId(): string {
   return `cut-${_idCounter}`;
 }
 
+function isEdge(r: { start: number; end: number }, totalPoints: number): boolean {
+  return r.start <= 0 || r.end >= totalPoints - 1;
+}
+
 export interface RangeSelectionApi {
   ranges: CutRange[];
+  /** Globaler Middle-Mode-Toggle. Wirkt auf alle Cuts, die KEINE Edge
+   *  sind. Edge-Cuts bleiben ``trim``. */
+  middleMode: MiddleMode;
+  setMiddleMode: (mode: MiddleMode, totalPoints: number) => void;
   /** Neuen Cut-Range um die uebergebene Position herum einfuegen. Findet
    *  automatisch die naechste freie Luecke. Gibt ``true`` zurueck, wenn ein
    *  Cut angelegt werden konnte, ``false`` wenn es keine Luecke gibt
@@ -51,7 +68,8 @@ export interface RangeSelectionApi {
   /** Range mit gegebener ID loeschen. */
   removeRange: (id: string) => void;
   /** Start oder End eines Range anpassen. Clampt automatisch gegen
-   *  [0, n-1] UND gegen die Nachbar-Cuts (kein Overlap). */
+   *  [0, n-1] UND gegen die Nachbar-Cuts (kein Overlap). Setzt den
+   *  Mode auf ``trim`` zurueck, wenn der Cut zur Edge wird. */
   updateRange: (id: string, patch: Partial<Pick<CutRange, "start" | "end">>, totalPoints: number) => void;
   /** Alle Ranges zuruecksetzen. */
   clearAll: () => void;
@@ -133,6 +151,9 @@ function findNeighbors(
 
 export function useRangeSelection(): RangeSelectionApi {
   const [ranges, setRanges] = useState<CutRange[]>([]);
+  // Standard fuer neue Middle-Cuts: "gap" (sichtbare Luecke, harmloser
+  // Default). Der User schaltet bei Bedarf auf "synthetic" um.
+  const [middleMode, setMiddleModeState] = useState<MiddleMode>("gap");
 
   const addRange = useCallback((centerIdx: number, totalPoints: number): boolean => {
     let added = false;
@@ -156,10 +177,12 @@ export function useRangeSelection(): RangeSelectionApi {
       end = Math.min(gap.hi, end);
 
       added = true;
-      return [...prev, { id: nextId(), start, end }];
+      const edge = isEdge({ start, end }, totalPoints);
+      const mode: CutMode = edge ? "trim" : middleMode;
+      return [...prev, { id: nextId(), start, end, mode }];
     });
     return added;
-  }, []);
+  }, [middleMode]);
 
   const canAddRange = useCallback((centerIdx: number, totalPoints: number) => {
     return findGapAround(ranges, centerIdx, totalPoints) !== null;
@@ -191,11 +214,30 @@ export function useRangeSelection(): RangeSelectionApi {
         else end = start;
       }
 
-      return prev.map((r) => (r.id === id ? { ...r, start, end } : r));
+      // 4. Edge-Auto-Detection: wenn der Cut zur Edge wurde, Mode auf
+      //    "trim" zurueckdrehen. Wenn er KEINE Edge mehr ist und vorher
+      //    "trim" war, auf den globalen middleMode anheben.
+      const edge = isEdge({ start, end }, totalPoints);
+      let mode: CutMode = me.mode;
+      if (edge) mode = "trim";
+      else if (me.mode === "trim") mode = middleMode;
+
+      return prev.map((r) => (r.id === id ? { ...r, start, end, mode } : r));
     });
+  }, [middleMode]);
+
+  const setMiddleMode = useCallback((mode: MiddleMode, totalPoints: number) => {
+    setMiddleModeState(mode);
+    setRanges((prev) => prev.map((r) => {
+      if (isEdge(r, totalPoints)) return r;        // Edges bleiben trim
+      return { ...r, mode };
+    }));
   }, []);
 
   const clearAll = useCallback(() => setRanges([]), []);
 
-  return { ranges, addRange, canAddRange, removeRange, updateRange, clearAll };
+  return {
+    ranges, middleMode, setMiddleMode,
+    addRange, canAddRange, removeRange, updateRange, clearAll,
+  };
 }

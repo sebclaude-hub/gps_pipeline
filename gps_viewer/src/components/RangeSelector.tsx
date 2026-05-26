@@ -1,31 +1,77 @@
 /**
- * RangeSelector -- UI fuer Cut-Range-Selektion (Trimming + Multi-Cut).
+ * RangeSelector -- UI fuer Cut-Range-Selektion mit drei Modi
+ * (trim / gap / synthetic).
  *
  * Eigenschaften der UI
  * --------------------
- *   * Horizontale "Cut-Leiste" parallel zum TrackSlider darunter
- *   * Cut-Bars in Rot, mit Index-Label "Cut 1", "Cut 2", ...
- *     (sortiert nach Position auf dem Track, nicht nach Anlege-Reihenfolge).
- *   * Bei Cuts am Track-Anfang (start === 0) bzw. -Ende (end === N-1):
- *     Label-Wechsel zu "Trim Start" bzw. "Trim Ende" und der aeussere
- *     Drag-Handle entfaellt, weil dieser Rand fix am Track-Rand klebt.
- *   * Cuts duerfen sich NICHT ueberlappen (im Hook garantiert).
- *   * "+ Cut" deaktiviert, wenn es um die aktuelle Slider-Position herum
- *     keine Luecke mehr gibt.
- *   * "Reset" loescht alle Cuts; "Export" laedt ranges.json herunter.
+ *   * Horizontale "Cut-Leiste" parallel zum TrackSlider darunter.
+ *   * Cut-Bars sind nach Modus farbcodiert:
+ *       trim       (rot, mit Schraffur fuer Edges) -- Muell-Entfernung am Rand
+ *       gap        (gruen)   -- Punkte raus, sichtbare Luecke
+ *       synthetic  (blau)    -- Punkte raus, Zeitachse zusammenrueckend
+ *   * Globaler Pill-Switch "Luecke / Zeit verschieben" entscheidet, was
+ *     neue Middle-Cuts werden (und schaltet alle bestehenden Middle-
+ *     Cuts mit). Edge-Cuts (start=0 oder end=N-1) bleiben immer trim.
+ *   * "+ Cut" deaktiviert, wenn um die aktuelle Slider-Position herum
+ *     keine Luecke mehr existiert.
+ *   * "Reset" loescht alle Cuts; "Export" laedt
+ *     ``<source>.cuts.json`` herunter mit dem neuen Sidecar-Format.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CutRange, RangeSelectionApi } from "../hooks/useRangeSelection";
+import type {
+  CutRange, RangeSelectionApi, MiddleMode,
+} from "../hooks/useRangeSelection";
 
 interface Props {
   totalPoints: number;
   activeIdx: number;
   api: RangeSelectionApi;
+  /** Dateiname (mit Endung) der Quelldatei, in die die Schnittanweisungen
+   *  geschrieben werden -- wird in die ``cuts.json`` exportiert und
+   *  bestimmt den Download-Dateinamen. Wenn null/leer, ist Export
+   *  deaktiviert (Viewer weiss sonst nicht, wohin gespeichert werden soll). */
+  sourceFile?: string | null;
+  /** Aktueller Hoehen-Anzeigeoffset in m. Wird mit in die ``cuts.json``
+   *  geschrieben, damit geteilte Tracks den Slider-Default mitbringen. */
+  zOffset?: number;
 }
 
 const TRACK_HEIGHT = 18;
 const HANDLE_WIDTH = 10;
+
+// Farbpalette pro Modus -- definiert hier zentral, damit Balken, Handles
+// und Tooltip-Texte konsistent bleiben.
+type ModeStyle = {
+  bgSolid: string;
+  bgHatched: string;     // fuer Edge-Cuts
+  border: string;
+  handle: string;
+  label: string;
+};
+const MODE_STYLES: Record<CutRange["mode"], ModeStyle> = {
+  trim: {
+    bgSolid:   "rgba(220, 70, 70, 0.45)",
+    bgHatched: "repeating-linear-gradient(45deg, rgba(220,70,70,0.55) 0 6px, rgba(220,70,70,0.3) 6px 12px)",
+    border:    "#c44",
+    handle:    "#f55",
+    label:     "Trim",
+  },
+  gap: {
+    bgSolid:   "rgba(70, 180, 90, 0.45)",
+    bgHatched: "repeating-linear-gradient(45deg, rgba(70,180,90,0.55) 0 6px, rgba(70,180,90,0.3) 6px 12px)",
+    border:    "#4a4",
+    handle:    "#5d5",
+    label:     "Gap",
+  },
+  synthetic: {
+    bgSolid:   "rgba(80, 130, 220, 0.45)",
+    bgHatched: "repeating-linear-gradient(45deg, rgba(80,130,220,0.55) 0 6px, rgba(80,130,220,0.3) 6px 12px)",
+    border:    "#46c",
+    handle:    "#69e",
+    label:     "Synth",
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Label-Helfer
@@ -47,7 +93,8 @@ function classifyCuts(
     else if (trimEnd)         label = "Trim Ende";
     else {
       cutCounter += 1;
-      label = `Cut ${cutCounter}`;
+      const modeLabel = MODE_STYLES[r.mode].label;
+      label = `${modeLabel} ${cutCounter}`;
     }
     return { ...r, label, trimStart, trimEnd };
   });
@@ -57,7 +104,7 @@ function classifyCuts(
 // Hauptkomponente
 // ---------------------------------------------------------------------------
 
-export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
+export function RangeSelector({ totalPoints, activeIdx, api, sourceFile, zOffset = 0 }: Props) {
   const trackRef = useRef<HTMLDivElement | null>(null);
 
   /** Bildschirm-X -> Track-Index (clamped). */
@@ -85,46 +132,67 @@ export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
     return () => window.clearTimeout(t);
   }, [exportHint]);
 
+  // Source-File und daraus abgeleitete Download-/Anweisungs-Dateinamen.
+  // Wenn die Quelle nicht bekannt ist, kann auch nicht exportiert werden.
+  const sourceKnown = !!(sourceFile && sourceFile.length > 0);
+  const effectiveSource = sourceFile ?? "";
+  const exportName = sourceKnown
+    ? `${effectiveSource}.cuts.json`
+    : "(unbekannte Quelle)";
+
+  const hasZOffset = Math.abs(zOffset) >= 0.05;   // rundet 0.0x auf 0
+  const canExport = sourceKnown
+                    && (api.ranges.length > 0 || hasZOffset);
+
   const handleExport = useCallback(() => {
-    const payload = {
-      total_points: totalPoints,
-      cut_ranges: api.ranges.map((r) => ({ start: r.start, end: r.end })),
+    if (!canExport) return;
+    const sorted = [...api.ranges].sort((a, b) => a.start - b.start);
+    const payload: Record<string, unknown> = {
+      source: effectiveSource,
+      n_points_reference: totalPoints,
+      cut_ranges: sorted.map((r) => ({
+        start: r.start, end: r.end, mode: r.mode,
+      })),
       created_at: new Date().toISOString(),
     };
+    if (hasZOffset) {
+      payload.z_offset_m = Math.round(zOffset * 10) / 10;
+    }
     const blob = new Blob([JSON.stringify(payload, null, 2)],
                          { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "cut_ranges.json";
+    a.download = exportName;
     a.click();
     URL.revokeObjectURL(url);
     setExportHint(true);
-  }, [api.ranges, totalPoints]);
+  }, [api.ranges, totalPoints, effectiveSource, exportName,
+      canExport, zOffset, hasZOffset]);
 
-  // Der vorgeschlagene apply_cuts-Befehl. Die heruntergeladene
-  // cut_ranges.json soll in data/ wandern -- dann findet apply_cuts
-  // sie automatisch und --ranges entfaellt.
-  const cliCmd = [
-    '# 1. cut_ranges.json aus Downloads nach data/ verschieben',
+  // Hinweis-Text fuer den Export-Popup: Anweisungsdatei nach data/
+  // verschieben und Pipeline neu laufen lassen.
+  const hintCmd = [
+    `# 1. ${exportName} aus Downloads nach data/ verschieben`,
+    `#    (selber Ordner wie ${effectiveSource || "deine Quelldatei"})`,
+    "# 2. Pipeline neu laufen lassen:",
     '$env:PYTHONUTF8 = "1"',
-    'python -m gps_pipeline.apply_cuts `',
-    '    --feather output/<dein_track>.feather `',
-    '    --output  output_trimmed/ `',
-    '    --dem     data/<dein_dem>.tif `',
-    '    --charts  data/',
-    '$env:PYTHONUTF8 = "1"',
-    'python view.py output_trimmed',
+    "python -m gps_pipeline",
+    "# 3. Track im Viewer ansehen:",
+    `python view.py output/nmea_${(effectiveSource || "track").replace(/\.[^.]+$/, "")}`,
+    "",
+    "# Schnittanweisungen deaktivieren: Datei umbenennen,",
+    `# z.B. ${exportName}.disabled`,
   ].join("\n");
 
   const copyCmd = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(cliCmd);
+      await navigator.clipboard.writeText(hintCmd);
     } catch {
       // Clipboard-API kann auf nicht-HTTPS-Origins fehlschlagen --
       // dann muss der Nutzer aus dem <pre>-Block kopieren.
     }
-  }, [cliCmd]);
+  }, [hintCmd]);
 
   // Labelled + sortiert -- benutze ich sowohl unten als auch fuer die
   // Count-Anzeige rechts.
@@ -133,25 +201,28 @@ export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
     [api.ranges, totalPoints]
   );
 
+  const middleCutCount = labelled.filter((r) => !r.trimStart && !r.trimEnd).length;
+  const hasAnyCut = labelled.length > 0;
+
   return (
     <div style={{ ...containerStyle, position: "relative" }}>
       {exportHint && (
         <div style={hintBoxStyle}>
           <div style={hintHeaderStyle}>
-            <span>cut_ranges.json heruntergeladen. Naechster Schritt:</span>
+            <span>{exportName} heruntergeladen. Naechster Schritt:</span>
             <button
               onClick={() => setExportHint(false)}
               style={hintCloseStyle}
               title="Hinweis schliessen"
             >×</button>
           </div>
-          <pre style={hintCmdStyle}>{cliCmd}</pre>
+          <pre style={hintCmdStyle}>{hintCmd}</pre>
           <div style={hintFooterStyle}>
             <button onClick={copyCmd} style={hintCopyBtnStyle}>
               In Zwischenablage kopieren
             </button>
             <span style={{ color: "#888", fontSize: 10 }}>
-              Vorher Platzhalter ersetzen (Track-Name, DEM)
+              Datei muss neben der Quelldatei in data/ liegen
             </span>
           </div>
         </div>
@@ -171,17 +242,38 @@ export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
         >
           + Cut
         </button>
-        {api.ranges.length > 0 && (
-          <>
-            <button onClick={api.clearAll} style={buttonStyle} title="Alle Cuts entfernen">
-              Reset
-            </button>
-            <button onClick={handleExport} style={{ ...buttonStyle, background: "#3a3" }}
-                    title="ranges.json herunterladen">
-              Export
-            </button>
-          </>
+        {hasAnyCut && (
+          <button onClick={api.clearAll} style={buttonStyle}
+                  title="Alle Cuts entfernen">
+            Reset
+          </button>
         )}
+        {(hasAnyCut || hasZOffset) && (
+          <button
+            onClick={handleExport}
+            disabled={!canExport}
+            style={{
+              ...buttonStyle,
+              background: canExport ? "#3a3" : "#333",
+              opacity: canExport ? 1 : 0.5,
+              cursor: canExport ? "pointer" : "not-allowed",
+            }}
+            title={canExport
+              ? `${exportName} herunterladen`
+              : "Export: Quelldatei unbekannt. Verarbeite den Track ueber 'python -m gps_pipeline', damit source_file gesetzt ist."}
+          >
+            Export
+            {hasZOffset && ` (z=${zOffset >= 0 ? "+" : ""}${zOffset.toFixed(1)}m)`}
+          </button>
+        )}
+        <MiddleModeToggle
+          value={api.middleMode}
+          onChange={(m) => api.setMiddleMode(m, totalPoints)}
+          disabled={middleCutCount === 0}
+          title={middleCutCount === 0
+            ? "Modus fuer kuenftige Middle-Cuts (aktuell keine vorhanden)"
+            : `Modus fuer alle ${middleCutCount} Middle-Cut(s)`}
+        />
       </div>
 
       <div ref={trackRef} style={trackStyle}>
@@ -205,6 +297,57 @@ export function RangeSelector({ totalPoints, activeIdx, api }: Props) {
           ? <span style={{ color: "#555" }}>keine Cuts</span>
           : <span>{labelled.length} Cut{labelled.length > 1 ? "s" : ""}</span>}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MiddleModeToggle -- Pill-Switch "Luecke" <-> "Zeit verschieben"
+// ---------------------------------------------------------------------------
+
+interface MiddleModeToggleProps {
+  value: MiddleMode;
+  onChange: (m: MiddleMode) => void;
+  disabled?: boolean;
+  title?: string;
+}
+
+function MiddleModeToggle({ value, onChange, disabled, title }: MiddleModeToggleProps) {
+  const isGap = value === "gap";
+  return (
+    <div
+      style={{
+        ...toggleContainerStyle,
+        opacity: disabled ? 0.5 : 1,
+        cursor: disabled ? "default" : "pointer",
+      }}
+      title={title}
+      onClick={() => {
+        if (disabled) return;
+        onChange(isGap ? "synthetic" : "gap");
+      }}
+    >
+      <div style={{
+        ...toggleKnobStyle,
+        left: isGap ? 2 : "calc(50% + 0px)",
+        background: isGap
+          ? MODE_STYLES.gap.handle
+          : MODE_STYLES.synthetic.handle,
+      }} />
+      <span style={{
+        ...toggleLabelStyle,
+        color: isGap ? "#fff" : "#888",
+        fontWeight: isGap ? 600 : 400,
+      }}>
+        Luecke
+      </span>
+      <span style={{
+        ...toggleLabelStyle,
+        color: !isGap ? "#fff" : "#888",
+        fontWeight: !isGap ? 600 : 400,
+      }}>
+        Zeit verschieben
+      </span>
     </div>
   );
 }
@@ -279,11 +422,12 @@ function RangeBar({
     };
   }, [dragging]);
 
+  const style = MODE_STYLES[range.mode];
   // Schraffur-Muster fuer Trim-Edges -- macht Edge-Cuts visuell klar von
   // Middle-Cuts unterscheidbar.
   const baseBackground = (trimStart || trimEnd)
-    ? "repeating-linear-gradient(45deg, rgba(220,70,70,0.55) 0 6px, rgba(220,70,70,0.3) 6px 12px)"
-    : "rgba(220, 70, 70, 0.45)";
+    ? style.bgHatched
+    : style.bgSolid;
 
   return (
     <div style={{
@@ -292,8 +436,8 @@ function RangeBar({
       width: `${widthPct}%`,
       top: 0, bottom: 0,
       background: baseBackground,
-      borderTop: "1px solid #c44",
-      borderBottom: "1px solid #c44",
+      borderTop: `1px solid ${style.border}`,
+      borderBottom: `1px solid ${style.border}`,
       pointerEvents: "none",
       overflow: "visible",
     }}>
@@ -306,7 +450,7 @@ function RangeBar({
           style={{
             ...handleStyle,
             left: -HANDLE_WIDTH / 2,
-            background: dragging === "start" ? "#fff" : "#f55",
+            background: dragging === "start" ? "#fff" : style.handle,
           }}
           title={`Start: ${range.start}`}
         />
@@ -319,7 +463,7 @@ function RangeBar({
           style={{
             ...handleStyle,
             right: -HANDLE_WIDTH / 2,
-            background: dragging === "end" ? "#fff" : "#f55",
+            background: dragging === "end" ? "#fff" : style.handle,
           }}
           title={`Ende: ${range.end}`}
         />
@@ -342,7 +486,7 @@ function RangeBar({
           whiteSpace: "nowrap",
           overflow: "hidden",
         }}
-        title={`${label} (${range.start}..${range.end})`}
+        title={`${label} (${range.start}..${range.end}, mode=${range.mode})`}
       >
         {label}
       </div>
@@ -384,7 +528,7 @@ const containerStyle: React.CSSProperties = {
 };
 
 const leftCtrlsStyle: React.CSSProperties = {
-  display: "flex", gap: 4, flexShrink: 0,
+  display: "flex", gap: 4, flexShrink: 0, alignItems: "center",
 };
 
 const trackStyle: React.CSSProperties = {
@@ -419,6 +563,40 @@ const buttonStyle: React.CSSProperties = {
 const countStyle: React.CSSProperties = {
   color: "#888", fontSize: 11, minWidth: 60, textAlign: "right",
   flexShrink: 0,
+};
+
+// ---- MiddleModeToggle ----
+
+const toggleContainerStyle: React.CSSProperties = {
+  position: "relative",
+  display: "inline-flex",
+  alignItems: "center",
+  width: 200,
+  height: 24,
+  marginLeft: 8,
+  borderRadius: 12,
+  background: "#1a1a1a",
+  border: "1px solid #333",
+  padding: "0 4px",
+  fontSize: 10,
+  userSelect: "none",
+};
+
+const toggleKnobStyle: React.CSSProperties = {
+  position: "absolute",
+  top: 2,
+  width: "calc(50% - 2px)",
+  height: "calc(100% - 4px)",
+  borderRadius: 10,
+  transition: "left 0.18s cubic-bezier(0.4, 0.0, 0.2, 1), background 0.18s",
+  pointerEvents: "none",
+};
+
+const toggleLabelStyle: React.CSSProperties = {
+  flex: 1,
+  textAlign: "center",
+  zIndex: 1,
+  transition: "color 0.18s, font-weight 0.18s",
 };
 
 // ---------------------------------------------------------------------------
