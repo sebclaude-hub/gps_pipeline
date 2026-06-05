@@ -1,14 +1,27 @@
 import { useMemo } from "react";
-import type { ColorMode, QuantileBreaks } from "../types";
-import { plasmaColor, quantileLinearPosition, rgbaCss } from "../utils/colorMap";
+import type { ColorMode, TrackData } from "../types";
+import {
+  accelGradientCss,
+  plasmaColor,
+  quantileLinearPosition,
+  rgbaCss,
+} from "../utils/colorMap";
+import { colorScaleFor } from "../utils/colorScale";
 
 interface Props {
-  breaks: QuantileBreaks;
+  track: TrackData;
   colorMode: ColorMode;
   /** Pixel-Abstand vom oberen Rand. Wird von App.tsx je nach Anzahl der
    *  sichtbaren Toggles gesetzt, damit die Legende nicht ueberlappt. */
   topOffset?: number;
 }
+
+const GRADIENT_META: Partial<Record<ColorMode, { label: string; unit: string }>> = {
+  speed: { label: "Geschwindigkeit", unit: "km/h" },
+  altitude: { label: "Höhe (MSL)", unit: "m" },
+  altitude_gnd: { label: "Höhe (GND)", unit: "m" },
+  energy: { label: "Energiehöhe", unit: "m" },
+};
 
 /**
  * Verteilt Tick-Positionen proportional zu den numerischen Bereichen,
@@ -109,27 +122,16 @@ function ClassLegend({ topOffset, label, classes }: {
   );
 }
 
-export function ColorLegend({ breaks, colorMode, topOffset = 124 }: Props) {
-  // Klassen-Legenden fuer die regelbasierten Modi.
-  if (colorMode === "flight") {
-    return <ClassLegend topOffset={topOffset} label="Flug" classes={FLIGHT_CLASSES} />;
-  }
-  if (colorMode === "drone") {
-    return <ClassLegend topOffset={topOffset} label="Drohne" classes={DRONE_CLASSES} />;
-  }
-
-  const isSpeed = colorMode === "speed";
-  const values = isSpeed ? breaks.speed_kmh : breaks.altitude_m;
-  const unit = isSpeed ? "km/h" : "m";
-  const label = isSpeed ? "Geschwindigkeit" : "Höhe";
-
-  const positions = useMemo(() => distributeTicks(values, 0.10), [values]);
-
-  // Verlauf GESTAUCHT auf die lineare Werteachse: Farbe an Wert v = die echte
-  // quantil-entzerrte Transferfunktion. Dadurch wechselt die Farbe schnell, wo
-  // viele Werte dicht liegen (Cluster), und langsam in dünnen Bereichen — der
-  // Balken passt jetzt zu den wert-positionierten Ticks (vorher uniformer Balken).
-  const gradient = useMemo(() => {
+export function ColorLegend({ track, colorMode, topOffset = 124 }: Props) {
+  // Gradient-Modi (speed/altitude/altitude_gnd/energy): Grenzen + gestauchter
+  // Verlauf + Tick-Positionen. IMMER aufgerufen (keine bedingten Hooks); null
+  // fuer Klassen-/Signed-Modi. Werte/Grenzen kommen aus der Pipeline (JSON).
+  const grad = useMemo(() => {
+    const meta = GRADIENT_META[colorMode];
+    if (!meta) return null;
+    const values = colorScaleFor(track, colorMode).breaks;
+    if (!values || values.length < 2) return null;
+    const positions = distributeTicks(values, 0.10);
     const min = values[0];
     const max = values[values.length - 1];
     const span = max - min || 1;
@@ -141,12 +143,49 @@ export function ColorLegend({ breaks, colorMode, topOffset = 124 }: Props) {
       const pos = quantileLinearPosition(v, values);
       stops.push(`${rgbaCss(plasmaColor(pos, 230))} ${(f * 100).toFixed(1)}%`);
     }
-    return `linear-gradient(to top, ${stops.join(", ")})`;
-  }, [values]);
+    const gradient = `linear-gradient(to top, ${stops.join(", ")})`;
+    return { ...meta, values, positions, gradient };
+  }, [track, colorMode]);
+
+  // Klassen-Legenden fuer die regelbasierten Modi.
+  if (colorMode === "flight") {
+    return <ClassLegend topOffset={topOffset} label="Flug" classes={FLIGHT_CLASSES} />;
+  }
+  if (colorMode === "drone") {
+    return <ClassLegend topOffset={topOffset} label="Drohne" classes={DRONE_CLASSES} />;
+  }
+
+  // Signierte Modi (accel / energy_rate): horizontaler YlOrRd/YlGnBu-Verlauf.
+  if (colorMode === "accel" || colorMode === "energy_rate") {
+    const title = colorMode === "accel" ? "Beschleunigung" : "Energieänderung";
+    const [left, right] =
+      colorMode === "accel" ? ["− Bremsen", "Beschl. +"] : ["− verliert", "gewinnt +"];
+    return (
+      <div style={{
+        position: "absolute", top: topOffset, right: 12,
+        background: "rgba(0,0,0,0.65)",
+        borderRadius: 6, padding: "10px 12px",
+        color: "#ddd", fontSize: 11, pointerEvents: "none",
+      }}>
+        <div style={{ marginBottom: 6, fontWeight: 600 }}>{title}</div>
+        <div style={{
+          width: 160, height: 10, borderRadius: 2,
+          background: accelGradientCss(),
+          border: "1px solid rgba(255,255,255,0.12)",
+        }} />
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, color: "#aaa", fontSize: 10 }}>
+          <span>{left}</span><span>{right}</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!grad) return null;
 
   const HEIGHT = 180;
   const BAR_W = 14;
 
+  // Gradient-Legende auf linearer Werteachse, Obergrenzen-Labels (Mindestabstand).
   return (
     <div style={{
       position: "absolute", top: topOffset, right: 12,
@@ -155,45 +194,31 @@ export function ColorLegend({ breaks, colorMode, topOffset = 124 }: Props) {
       color: "#ddd", fontSize: 11,
       pointerEvents: "none",
     }}>
-      <div style={{ marginBottom: 6, fontWeight: 600 }}>{label}</div>
+      <div style={{ marginBottom: 6, fontWeight: 600 }}>{grad.label}</div>
       <div style={{ display: "flex", alignItems: "stretch", gap: 6 }}>
         <div style={{
           width: BAR_W, height: HEIGHT,
           borderRadius: 3,
-          background: gradient,
+          background: grad.gradient,
           border: "1px solid rgba(255,255,255,0.12)",
         }} />
         <div style={{ position: "relative", height: HEIGHT, width: 64 }}>
-          {values.map((v, i) => {
-            // Nur die Quantil-OBERGRENZEN beschriften (Index 0 = Minimum weg).
-            if (i === 0) return null;
-            // pos=0 unten, pos=1 oben → top in % = (1 - pos) * 100
-            const top = (1 - positions[i]) * HEIGHT;
+          {grad.values.map((v, i) => {
+            if (i === 0) return null; // nur Obergrenzen
+            const top = (1 - grad.positions[i]) * HEIGHT;
             return (
-              <div
-                key={i}
-                style={{
-                  position: "absolute",
-                  top: top - 7,
-                  left: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                <div style={{
-                  width: 6, height: 1, background: "#888",
-                }} />
-                <span style={{ fontVariantNumeric: "tabular-nums" }}>
-                  {v.toFixed(isSpeed ? 0 : 0)}
-                </span>
+              <div key={i} style={{
+                position: "absolute", top: top - 7, left: 0,
+                display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap",
+              }}>
+                <div style={{ width: 6, height: 1, background: "#888" }} />
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>{v.toFixed(0)}</span>
               </div>
             );
           })}
         </div>
       </div>
-      <div style={{ marginTop: 6, color: "#888", fontSize: 10 }}>{unit}</div>
+      <div style={{ marginTop: 6, color: "#888", fontSize: 10 }}>{grad.unit}</div>
     </div>
   );
 }

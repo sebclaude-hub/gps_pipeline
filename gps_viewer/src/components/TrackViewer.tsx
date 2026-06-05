@@ -12,7 +12,8 @@ import { makeTerrainLayer } from "../layers/terrainLayer";
 import { makeChartLayer } from "../layers/chartLayer";
 import type { LoadedChart } from "../hooks/useCharts";
 import type { CutRange } from "../hooks/useRangeSelection";
-import { plasmaColor, quantileLinearPositions, type Rgba } from "../utils/colorMap";
+import { accelerationColor, plasmaColor, quantileLinearPositions, type Rgba } from "../utils/colorMap";
+import { colorScaleFor } from "../utils/colorScale";
 import { formatSpeed, formatAltitude, formatTimestamp } from "../utils/formatters";
 
 interface Props {
@@ -78,45 +79,65 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
   const trackColorMode: ColorMode =
     (colorMode === "flight" || colorMode === "drone") ? "speed" : colorMode;
 
-  // Farb-Position pro Punkt: quantil-entzerrt mit linearer Verteilung INNERHALB
-  // jedes Quantils (s. quantileLinearPosition). Nutzt die Quantilgrenzen des
-  // Backends → dichte Cluster (z.B. ~120 km/h) werden entzerrt sichtbar.
+  // Farb-Position pro Punkt: quantil-entzerrt (s. quantileLinearPosition). Werte
+  // + Grenzen je Modus liefert colorScaleFor — alles aus der Pipeline (JSON),
+  // der Viewer rechnet nicht. Deckt speed/altitude/altitude_gnd/energy ab.
   const rankPositions = useMemo(() => {
-    const isSpeed = trackColorMode === "speed";
-    const values = isSpeed ? track.points.speed_kmh : track.points.alt;
-    const breaks = isSpeed
-      ? track.quantile_breaks.speed_kmh
-      : track.quantile_breaks.altitude_m;
+    const { values, breaks } = colorScaleFor(track, trackColorMode);
     return quantileLinearPositions(values, breaks);
   }, [track, colorMode]);
 
+  // Vorzeichenbehafteter Kanal (accel ODER energy_rate) — die Pipeline liefert
+  // die Rohwerte + die robuste Skala; der Viewer normiert nur raw/scale → [−1,1]
+  // fuer die YlOrRd/YlGnBu-Farbgebung. signedRaw für den Tooltip.
+  const { signedRaw, signedNorm, signedUnit } = useMemo(() => {
+    const raw =
+      colorMode === "accel"
+        ? track.points.accel_mps2 ?? null
+        : colorMode === "energy_rate"
+          ? track.points.energy_rate_mps ?? null
+          : null;
+    if (!raw) return { signedRaw: null, signedNorm: null, signedUnit: "" };
+    const scale =
+      (colorMode === "accel"
+        ? track.scales?.accel_mps2
+        : track.scales?.energy_rate_mps) || 1;
+    const norm = raw.map((v) =>
+      v === null ? null : Math.max(-1, Math.min(1, v / scale)),
+    );
+    return { signedRaw: raw, signedNorm: norm, signedUnit: colorMode === "accel" ? "m/s²" : "m/s" };
+  }, [track, colorMode]);
+
   const curtainSegments = useMemo(
-    () => buildCurtainSegments(track, dem?.grid ?? null, rankPositions, altBase, Z_SCALE, zOffset),
-    [track, dem, rankPositions, altBase, Z_SCALE, zOffset]
+    () => buildCurtainSegments(track, dem?.grid ?? null, rankPositions, altBase, Z_SCALE, zOffset, signedNorm),
+    [track, dem, rankPositions, altBase, Z_SCALE, zOffset, signedNorm]
   );
 
-  // Track-Segmente als individuelle Paths (für farbige PathLayer)
+  // Track-Segmente als individuelle Paths (für farbige PathLayer). Pro Segment:
+  // Rang t (speed/altitude/energy/...) und Signed-Wert signedN (accel/energy_rate).
   const pathSegments = useMemo(() => {
     const { lon, lat, alt } = track.points;
-    const segs: { path: [number, number, number][]; t: number }[] = [];
+    const mean2 = (a: number | null, b: number | null): number => {
+      const av = a === null || Number.isNaN(a) ? null : a;
+      const bv = b === null || Number.isNaN(b) ? null : b;
+      if (av === null && bv === null) return NaN;
+      if (av === null) return bv as number;
+      if (bv === null) return av;
+      return (av + bv) / 2;
+    };
+    const segs: { path: [number, number, number][]; t: number; signedN: number }[] = [];
     for (let i = 0; i < lon.length - 1; i++) {
-      const t_i  = rankPositions[i];
-      const t_i1 = rankPositions[i + 1];
-      let t: number;
-      if (Number.isNaN(t_i) && Number.isNaN(t_i1)) t = NaN;
-      else if (Number.isNaN(t_i)) t = t_i1;
-      else if (Number.isNaN(t_i1)) t = t_i;
-      else t = (t_i + t_i1) / 2;
       segs.push({
         path: [
           [lon[i],     lat[i],     exagAlt(alt[i])],
           [lon[i + 1], lat[i + 1], exagAlt(alt[i + 1])],
         ],
-        t,
+        t: mean2(rankPositions[i], rankPositions[i + 1]),
+        signedN: signedNorm ? mean2(signedNorm[i], signedNorm[i + 1]) : NaN,
       });
     }
     return segs;
-  }, [track, rankPositions, exagAlt]);
+  }, [track, rankPositions, signedNorm, exagAlt]);
 
   const activePt = useMemo(() => {
     const { lon, lat, alt } = track.points;
@@ -177,7 +198,10 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
       id: "track-path",
       data: pathSegments,
       getPath: (d: any) => d.path,
-      getColor: (d: any) => Number.isNaN(d.t) ? FALLBACK : plasmaColor(d.t, 255),
+      getColor: (d: any) =>
+        (colorMode === "accel" || colorMode === "energy_rate")
+          ? (Number.isNaN(d.signedN) ? FALLBACK : accelerationColor(d.signedN, 255))
+          : (Number.isNaN(d.t) ? FALLBACK : plasmaColor(d.t, 255)),
       getWidth: 2,
       widthUnits: "pixels",
       pickable: false,
@@ -298,6 +322,12 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
     lines.push(formatSpeed(speed));
     lines.push(`MSL ${formatAltitude(altShown)}`);
     if (above !== null) lines.push(`ueG ${above.toFixed(0)} m`);
+    // Aktiver Signed-Modus: Beschl. (m/s²) bzw. ΔEnergie (m/s), Pipeline-gerechnet.
+    const sr = signedRaw ? (signedRaw[idx] ?? null) : null;
+    if (sr !== null && Number.isFinite(sr)) {
+      const lbl = colorMode === "accel" ? "Beschl." : "ΔEnergie";
+      lines.push(`${lbl} ${sr >= 0 ? "+" : "−"}${Math.abs(sr).toFixed(1)} ${signedUnit}`);
+    }
     if (isSynth) lines.push('<span style="color:#f4c0c0">&#9888; Zeitstempel verschoben</span>');
 
     return {
@@ -314,7 +344,7 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
         // pointerEvents: none ist deck.gl-Default -- wir bleiben passiv.
       },
     };
-  }, [showTooltip, track, zOffset]);
+  }, [showTooltip, track, zOffset, signedRaw, signedUnit, colorMode]);
 
   return (
     <DeckGL

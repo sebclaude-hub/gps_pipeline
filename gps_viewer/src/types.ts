@@ -37,10 +37,22 @@ export interface TrackMeta {
 export interface QuantileBreaks {
   speed_kmh: number[];
   altitude_m: number[];
+  /** Hoehe ueber Grund (AGL) — fuer "altitude_gnd". Optional (aeltere JSON). */
+  altitude_gnd_m?: number[];
+  /** Spezifische Energiehoehe — fuer "energy". Optional (aeltere JSON). */
+  energy_height_m?: number[];
   n_quantiles: number;
 }
 
-export type ColorMode = "speed" | "altitude" | "flight" | "drone";
+export type ColorMode =
+  | "speed"
+  | "altitude"
+  | "altitude_gnd"
+  | "flight"
+  | "drone"
+  | "accel"
+  | "energy"
+  | "energy_rate";
 
 export interface TrackPoints {
   lat: number[];
@@ -50,6 +62,11 @@ export interface TrackPoints {
   above_terrain: (number | null)[];
   speed_kmh: (number | null)[];
   distance_m: (number | null)[];
+  // Abgeleitete Groessen aus der Pipeline (Python). Optional → aeltere
+  // track.json ohne diese Felder bleiben ladbar (Modi dann ausgegraut).
+  accel_mps2?: (number | null)[];
+  energy_height_m?: (number | null)[];
+  energy_rate_mps?: (number | null)[];
   timestamp_ms: number[];
   speed_q_idx: number[];
   alt_q_idx: number[];
@@ -67,6 +84,9 @@ export interface TrackData {
   meta: TrackMeta;
   quantile_breaks: QuantileBreaks;
   points: TrackPoints;
+  /** Robuste symmetrische Skalen der signierten Groessen (Pipeline-gerechnet);
+   *  der Viewer normiert raw/scale → [−1,1]. Optional (aeltere JSON). */
+  scales?: { accel_mps2: number; energy_rate_mps: number };
 }
 
 // ---------------------------------------------------------------------------

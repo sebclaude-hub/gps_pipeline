@@ -9,7 +9,11 @@
  * Das ergibt einen gleichmäßigen Farbverlauf entlang des Tracks und ist
  * robust gegen Extremwerte (Ausreißer verzerren die Farbskala nicht).
  */
-import { interpolatePlasma } from "d3-scale-chromatic";
+import {
+  interpolatePlasma,
+  interpolateYlGnBu,
+  interpolateYlOrRd,
+} from "d3-scale-chromatic";
 
 export type Rgba = [number, number, number, number];
 
@@ -121,6 +125,31 @@ export function quantileLinearPositions(
       ? NaN
       : quantileLinearPosition(v as number, breaks),
   );
+}
+
+/**
+ * Farbe fuer vorzeichenbehaftete, normalisierte Groessen aNorm ∈ [−1, 1]
+ * (Beschleunigung, Energieaenderung): aNorm ≥ 0 → YlGnBu (Gelb→Blau),
+ * aNorm < 0 → YlOrRd (Gelb→Rot). Beide starten bei 0 blassgelb → ruhig bleibt
+ * neutral, starke Events leuchten. NaN → Grau.
+ */
+export function accelerationColor(aNorm: number, alpha = 255): Rgba {
+  if (!Number.isFinite(aNorm)) return [150, 150, 150, alpha];
+  const mag = Math.min(1, Math.abs(aNorm));
+  const css = aNorm >= 0 ? interpolateYlGnBu(mag) : interpolateYlOrRd(mag);
+  const [r, g, b] = parseRgb(css);
+  return [r, g, b, alpha];
+}
+
+/** CSS linear-gradient fuer die signierte Legende: YlOrRd (links) ↔ neutral ↔
+ *  YlGnBu (rechts). */
+export function accelGradientCss(steps = 24, alpha = 255): string {
+  const stops: string[] = [];
+  for (let i = 0; i < steps; i++) {
+    const x = i / (steps - 1);
+    stops.push(`${rgbaCss(accelerationColor(x * 2 - 1, alpha))} ${(x * 100).toFixed(1)}%`);
+  }
+  return `linear-gradient(to right, ${stops.join(", ")})`;
 }
 
 /** Hilfsfunktion: rgba-String für CSS aus einer Rgba-Tupel. */

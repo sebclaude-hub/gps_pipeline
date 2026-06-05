@@ -126,6 +126,7 @@ export default function App() {
               value={colorMode}
               onChange={setColorMode}
               enableTerrainModes={meta.has_terrain}
+              enableDerivedModes={Array.isArray(track.points.accel_mps2)}
             />
             <ToggleSwitch<CurtainMode>
               value={curtainMode}
@@ -160,11 +161,12 @@ export default function App() {
           {/* Legende dynamisch positionieren. Pro Toggle ~36 px (28 px
               + 8 px Gap). OffsetSlider ist ca. 80 px hoch. */}
           <ColorLegend
-            breaks={track.quantile_breaks}
+            track={track}
             colorMode={colorMode}
             topOffset={
               12
-              + 2 * 36                             // ColorMode + Curtain
+              + 72                                 // ColorMode (umbrechend, ~2 Reihen)
+              + 36                                 // Curtain
               + (charts.length > 0 ? 36 : 0)       // Charts (optional)
               + 36                                 // InfoMode
               + 36                                 // ZScale

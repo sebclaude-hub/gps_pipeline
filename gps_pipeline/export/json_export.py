@@ -23,6 +23,12 @@ import numpy as np
 import pandas as pd
 
 from ..config import DEFAULT_QUANTILES
+from ..processing.kinematics import (
+    acceleration_3d,
+    energy_height,
+    energy_rate,
+    robust_symmetric_scale,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -91,14 +97,18 @@ def _compute_quantile_breaks(
         breaks = [0.0] * (n_quantiles + 1)
         return breaks, pd.Series(0, index=speed.index, dtype="int8")
 
-    labels = list(range(n_quantiles))
+    # labels=False → Integer-Codes statt fester Label-Liste. WICHTIG: bei
+    # fast-konstanten Daten (z.B. AGL nahe 0) fallen durch duplicates="drop"
+    # Bins weg; eine feste Label-Liste der Laenge n_quantiles wuerfe dann
+    # "Bin labels must be one fewer than the number of bin edges". Mit
+    # labels=False vergibt qcut robust so viele Codes wie es Bins gibt.
     q_cut, bins = pd.qcut(
-        clean, q=n_quantiles, labels=labels,
+        clean, q=n_quantiles, labels=False,
         retbins=True, duplicates="drop",
     )
     # Auffüllen auf die tatsächliche Länge (inkl. NaN-Positionen)
     q_idx = speed.copy().astype(object)
-    q_idx[clean.index] = q_cut.astype(object)
+    q_idx[clean.index] = q_cut
     q_idx = q_idx.fillna(-1).astype("int8")
 
     breaks = [round(float(b), 3) for b in bins]
@@ -186,6 +196,26 @@ def export_track_json(
     breaks, q_idx = _compute_quantile_breaks(speed, n_quantiles)
     alt_breaks, alt_q_idx = _compute_quantile_breaks(alt, n_quantiles)
 
+    # Abgeleitete Groessen (Beschleunigung, Energie). BEWUSST hier in Python
+    # gerechnet (Pipeline rechnet, Viewer rendert nur) — s. processing/kinematics.
+    # Zeitachse in Sekunden ab Start fuer die Ableitungen. BEWUSST relativ via
+    # total_seconds() (nicht aus ts_ms abgeleitet): nur Differenzen zaehlen, und
+    # das ist robust gegen die datetime-Aufloesung (ns/us/s je nach pandas).
+    ts_s = (ts - ts.iloc[0]).dt.total_seconds().to_numpy() if len(ts) else np.array([])
+    alt_arr = alt.astype(float).to_numpy()
+    speed_arr = speed.astype(float).to_numpy()
+    accel = acceleration_3d(speed_arr, alt_arr, ts_s)
+    energy_h = energy_height(speed_arr, alt_arr, ts_s)
+    energy_r = energy_rate(speed_arr, alt_arr, ts_s)
+    # Quantilgrenzen fuer die vorzeichenlosen Modi (GND = above_terrain, Energie).
+    agl_breaks, _ = _compute_quantile_breaks(above, n_quantiles)
+    energy_breaks, _ = _compute_quantile_breaks(
+        pd.Series(energy_h, index=df_c.index), n_quantiles
+    )
+    # Robuste, symmetrische Skalen fuer die signierten Modi (Beschl./ΔEnergie).
+    accel_scale = robust_symmetric_scale(accel)
+    energy_rate_scale = robust_symmetric_scale(energy_r)
+
     # Bounds
     bounds = {
         "lon_min": round(float(lon.min()), 6),
@@ -229,7 +259,17 @@ def export_track_json(
         "quantile_breaks": {
             "speed_kmh": breaks,
             "altitude_m": alt_breaks,
+            # Hoehe ueber Grund (AGL) und spezifische Energiehoehe — fuer die
+            # neuen Farbmodi. Werden viewer-seitig nur noch auf Farbe gemappt.
+            "altitude_gnd_m": agl_breaks,
+            "energy_height_m": energy_breaks,
             "n_quantiles": n_quantiles,
+        },
+        # Robuste, symmetrische Skalen der signierten Groessen (Beschl./ΔEnergie):
+        # der Viewer normiert raw/scale → [−1,1] fuer die YlOrRd/YlGnBu-Skala.
+        "scales": {
+            "accel_mps2": round(float(accel_scale), 4),
+            "energy_rate_mps": round(float(energy_rate_scale), 4),
         },
         "points": {
             "lat":          _safe_float_list(lat, 7),
@@ -239,6 +279,10 @@ def export_track_json(
             "above_terrain": _safe_float_list(above, 1),
             "speed_kmh":    _safe_float_list(speed, 2),
             "distance_m":   _safe_float_list(dist, 1),
+            # Abgeleitete Per-Punkt-Groessen (Python-gerechnet).
+            "accel_mps2":      _safe_float_list(accel, 3),
+            "energy_height_m": _safe_float_list(energy_h, 1),
+            "energy_rate_mps": _safe_float_list(energy_r, 3),
             "timestamp_ms": ts_ms,
             "speed_q_idx":  q_idx.tolist(),
             "alt_q_idx":    alt_q_idx.tolist(),

@@ -16,7 +16,7 @@
 
 import { SolidPolygonLayer } from "@deck.gl/layers";
 import type { TrackData, DemGrid, ColorMode } from "../types";
-import { plasmaColor, type Rgba } from "../utils/colorMap";
+import { accelerationColor, plasmaColor, type Rgba } from "../utils/colorMap";
 import { sampleDem } from "../utils/demMesh";
 
 export interface CurtainSegment {
@@ -26,6 +26,8 @@ export interface CurtainSegment {
   height: number;
   /** Mittlerer Rang [0,1] des Segments (für die Farbgebung). */
   t: number;
+  /** Mittlerer normalisierter Signed-Wert [−1,1] (accel/energy_rate); NaN ohne Wert. */
+  signedN: number;
   /** Rohe mittlere Track-Hoehe MSL in Metern (ohne Z-Offset, ohne
    *  Z-Skalierung). Wird fuer regelbasierte Faerbung gebraucht. */
   altMslRaw: number | null;
@@ -83,10 +85,21 @@ export function buildCurtainSegments(
   altBase: number = 0,
   zScale: number = 1,
   zOffset: number = 0,
+  signedNorm: (number | null)[] | null = null,
 ): CurtainSegment[] {
   const { lat, lon, alt, terrain_elev } = track.points;
   const n = lat.length;
   const segments: CurtainSegment[] = [];
+
+  /** Null-sicheres Mittel zweier Werte; beide fehlen → NaN. */
+  const meanOrNaN = (a: number | null, b: number | null): number => {
+    const av = a === null || Number.isNaN(a) ? null : a;
+    const bv = b === null || Number.isNaN(b) ? null : b;
+    if (av === null && bv === null) return NaN;
+    if (av === null) return bv as number;
+    if (bv === null) return av;
+    return (av + bv) / 2;
+  };
 
   // Zwei verschiedene Z-Transformationen:
   //   exagTrack   verschiebt + skaliert die Track-Hoehe (Vorhang-Oberkante)
@@ -106,7 +119,7 @@ export function buildCurtainSegments(
     lon_a: number, lat_a: number, alt_a_raw: number,
     lon_b: number, lat_b: number, alt_b_raw: number,
     terr_a_raw: number | null, terr_b_raw: number | null,
-    t: number,
+    t: number, signedN: number,
   ) {
     const dx = lon_b - lon_a;
     const dy = lat_b - lat_a;
@@ -159,6 +172,7 @@ export function buildCurtainSegments(
       ],
       height,
       t,
+      signedN,
       altMslRaw,
       altAglRaw,
     });
@@ -180,6 +194,8 @@ export function buildCurtainSegments(
     else if (Number.isNaN(t_i1)) tSeg = t_i;
     else tSeg = (t_i + t_i1) / 2;
 
+    const signedNSeg = signedNorm ? meanOrNaN(signedNorm[i], signedNorm[i + 1]) : NaN;
+
     // Distanz in Grad (grob, reicht fuer Subdivision-Entscheidung).
     const dLon = lon_i1 - lon_i;
     const dLat = lat_i1 - lat_i;
@@ -191,7 +207,7 @@ export function buildCurtainSegments(
         lon_i, lat_i, alt_i_raw,
         lon_i1, lat_i1, alt_i1_raw,
         terr_i_raw, terr_i1_raw,
-        tSeg,
+        tSeg, signedNSeg,
       );
       continue;
     }
@@ -220,7 +236,7 @@ export function buildCurtainSegments(
       const terr_b = (terr_i_raw !== null && terr_i1_raw !== null)
         ? terr_i_raw + (terr_i1_raw - terr_i_raw) * b
         : terr_i1_raw;
-      pushSeg(lon_a, lat_a, alt_a, lon_b, lat_b, alt_b, terr_a, terr_b, tSeg);
+      pushSeg(lon_a, lat_a, alt_a, lon_b, lat_b, alt_b, terr_a, terr_b, tSeg, signedNSeg);
     }
   }
   return segments;
@@ -245,7 +261,10 @@ export function makeCurtainLayer(
       const agl = d.altAglRaw !== null ? d.altAglRaw + zOffset : null;
       return droneColor(agl);
     }
-    // speed / altitude: continuous Plasma per Rang.
+    if (colorMode === "accel" || colorMode === "energy_rate") {
+      return Number.isNaN(d.signedN) ? FALLBACK : accelerationColor(d.signedN, 200);
+    }
+    // speed / altitude / altitude_gnd / energy: continuous Plasma per Rang.
     return Number.isNaN(d.t) ? FALLBACK : plasmaColor(d.t, 200);
   };
 
