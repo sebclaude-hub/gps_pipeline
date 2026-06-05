@@ -188,9 +188,14 @@ def export_track_json(
     # ohne Cut komplett False.
     is_synth = df_c.get("is_synthetic", pd.Series(False, index=df_c.index))
 
-    # Timestamps → Unix ms (int)
+    # Timestamps → Unix ms (int). ROBUST gegen die datetime-Aufloesung:
+    # pd.to_datetime liefert je nach pandas-Version [ns] ODER [us] (neuere
+    # Versionen hier: [us]). `astype(int64) // 1e6` ergaebe bei [us] SEKUNDEN
+    # statt Millisekunden → die Viewer-Zeitachse waere um Faktor 1000 daneben.
+    # Differenz zur Epoche in ganzen Millisekunden ist aufloesungsunabhaengig.
     ts = pd.to_datetime(df_c["timestamp_utc"], utc=True)
-    ts_ms = (ts.astype("int64") // 1_000_000).tolist()
+    _epoch = pd.Timestamp("1970-01-01", tz="UTC")
+    ts_ms = ((ts - _epoch) // pd.Timedelta(milliseconds=1)).tolist()
 
     # Quantile (Speed + Höhe)
     breaks, q_idx = _compute_quantile_breaks(speed, n_quantiles)
