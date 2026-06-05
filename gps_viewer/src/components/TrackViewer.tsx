@@ -12,7 +12,7 @@ import { makeTerrainLayer } from "../layers/terrainLayer";
 import { makeChartLayer } from "../layers/chartLayer";
 import type { LoadedChart } from "../hooks/useCharts";
 import type { CutRange } from "../hooks/useRangeSelection";
-import { computeRankPositions, plasmaColor, type Rgba } from "../utils/colorMap";
+import { plasmaColor, quantileLinearPositions, type Rgba } from "../utils/colorMap";
 import { formatSpeed, formatAltitude, formatTimestamp } from "../utils/formatters";
 
 interface Props {
@@ -78,12 +78,16 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
   const trackColorMode: ColorMode =
     (colorMode === "flight" || colorMode === "drone") ? "speed" : colorMode;
 
-  // Rang-Position pro Punkt für den effektiven Track-Color-Mode
+  // Farb-Position pro Punkt: quantil-entzerrt mit linearer Verteilung INNERHALB
+  // jedes Quantils (s. quantileLinearPosition). Nutzt die Quantilgrenzen des
+  // Backends → dichte Cluster (z.B. ~120 km/h) werden entzerrt sichtbar.
   const rankPositions = useMemo(() => {
-    const values = trackColorMode === "speed"
-      ? track.points.speed_kmh
-      : track.points.alt;
-    return computeRankPositions(values);
+    const isSpeed = trackColorMode === "speed";
+    const values = isSpeed ? track.points.speed_kmh : track.points.alt;
+    const breaks = isSpeed
+      ? track.quantile_breaks.speed_kmh
+      : track.quantile_breaks.altitude_m;
+    return quantileLinearPositions(values, breaks);
   }, [track, colorMode]);
 
   const curtainSegments = useMemo(

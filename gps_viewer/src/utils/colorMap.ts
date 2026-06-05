@@ -84,6 +84,45 @@ export function computeRankPositions(values: (number | null)[]): number[] {
   return result;
 }
 
+/**
+ * Quantil-entzerrte Farb-Position [0,1] eines Einzelwerts.
+ *
+ * WARUM (statt reinem Rang oben): Bei Autofahrten liegen sehr viele Punkte in
+ * einem schmalen Wertefenster (z.B. ~120 km/h). Reiner Rang spreizt sie zwar,
+ * kennt aber keine Klassengrenzen, die die Legende anzeigen kann. Hier bekommt
+ * jedes der k Quantile einen GLEICH langen Farb-Abschnitt (1/k), und INNERHALB
+ * eines Quantils werden die Werte LINEAR (auf die Abschnittslänge normiert)
+ * verteilt. So bleibt der Cluster entzerrt sichtbar, gleiche Werte = gleiche
+ * Farbe, und die Legende kann die echten Quantilgrenzen (mit Wertbezug) zeigen.
+ *
+ * `breaks` = k+1 Quantilgrenzen (inkl. min/max), wie sie das Backend liefert
+ * (können aufgefüllte Duplikate enthalten → degenerierte Bins → 0.5).
+ */
+export function quantileLinearPosition(v: number, breaks: number[]): number {
+  const k = breaks.length - 1;
+  if (k < 1) return 0.5;
+  if (v <= breaks[0]) return 0;
+  if (v >= breaks[k]) return 1;
+  let i = 0;
+  while (i < k - 1 && v > breaks[i + 1]) i++;
+  const lo = breaks[i];
+  const hi = breaks[i + 1];
+  const within = hi > lo ? Math.max(0, Math.min(1, (v - lo) / (hi - lo))) : 0.5;
+  return (i + within) / k;
+}
+
+/** Array-Variante; null/NaN → NaN. */
+export function quantileLinearPositions(
+  values: (number | null)[],
+  breaks: number[],
+): number[] {
+  return values.map((v) =>
+    v === null || !Number.isFinite(v)
+      ? NaN
+      : quantileLinearPosition(v as number, breaks),
+  );
+}
+
 /** Hilfsfunktion: rgba-String für CSS aus einer Rgba-Tupel. */
 export function rgbaCss(c: Rgba): string {
   return `rgba(${c[0]},${c[1]},${c[2]},${c[3] / 255})`;

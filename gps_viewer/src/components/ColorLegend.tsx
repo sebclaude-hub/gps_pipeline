@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { ColorMode, QuantileBreaks } from "../types";
-import { plasmaGradientCss } from "../utils/colorMap";
+import { plasmaColor, quantileLinearPosition, rgbaCss } from "../utils/colorMap";
 
 interface Props {
   breaks: QuantileBreaks;
@@ -125,7 +125,24 @@ export function ColorLegend({ breaks, colorMode, topOffset = 124 }: Props) {
 
   const positions = useMemo(() => distributeTicks(values, 0.10), [values]);
 
-  const gradient = useMemo(() => plasmaGradientCss(20, 230), []);
+  // Verlauf GESTAUCHT auf die lineare Werteachse: Farbe an Wert v = die echte
+  // quantil-entzerrte Transferfunktion. Dadurch wechselt die Farbe schnell, wo
+  // viele Werte dicht liegen (Cluster), und langsam in dünnen Bereichen — der
+  // Balken passt jetzt zu den wert-positionierten Ticks (vorher uniformer Balken).
+  const gradient = useMemo(() => {
+    const min = values[0];
+    const max = values[values.length - 1];
+    const span = max - min || 1;
+    const steps = 28;
+    const stops: string[] = [];
+    for (let i = 0; i < steps; i++) {
+      const f = i / (steps - 1);
+      const v = min + f * span;
+      const pos = quantileLinearPosition(v, values);
+      stops.push(`${rgbaCss(plasmaColor(pos, 230))} ${(f * 100).toFixed(1)}%`);
+    }
+    return `linear-gradient(to top, ${stops.join(", ")})`;
+  }, [values]);
 
   const HEIGHT = 180;
   const BAR_W = 14;
@@ -148,6 +165,8 @@ export function ColorLegend({ breaks, colorMode, topOffset = 124 }: Props) {
         }} />
         <div style={{ position: "relative", height: HEIGHT, width: 64 }}>
           {values.map((v, i) => {
+            // Nur die Quantil-OBERGRENZEN beschriften (Index 0 = Minimum weg).
+            if (i === 0) return null;
             // pos=0 unten, pos=1 oben → top in % = (1 - pos) * 100
             const top = (1 - positions[i]) * HEIGHT;
             return (

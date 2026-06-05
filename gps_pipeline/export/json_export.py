@@ -75,6 +75,16 @@ def _compute_quantile_breaks(
     (breaks, q_idx_series)
         breaks       : n+1 Grenzwerte (inklusive min und max)
         q_idx_series : Int-Serie mit Quantilklasse 0..n-1 pro Punkt, NaN → -1
+
+    WARUM hier NUR Grenzen + Klassenindex (keine Farb-Position):
+    Die eigentliche Farb-Position pro Punkt wird BEWUSST im Viewer
+    (gps_viewer/src/utils/colorMap.ts -> quantileLinearPosition) berechnet,
+    nicht hier. Schema: jedes Quantil bekommt einen gleich langen Farb-Abschnitt
+    (1/n), INNERHALB eines Quantils wird linear nach Wert verteilt (entzerrt
+    dichte Cluster, z.B. ~120 km/h, ohne dass ein Ausreisser die Skala
+    dominiert). Das ist reine Darstellungs-/Renderlogik und gehoert daher in die
+    Anzeigeschicht; die Pipeline liefert nur die dafuer noetigen Grenzen. Die
+    Legende nutzt dieselben `breaks` fuer die wert-positionierte Beschriftung.
     """
     clean = speed.dropna()
     if clean.empty or clean.nunique() < 2:
