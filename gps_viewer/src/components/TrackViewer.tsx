@@ -4,7 +4,7 @@
 import { useCallback, useMemo, useState } from "react";
 import DeckGL from "deck.gl";
 import { MapView } from "@deck.gl/core";
-import { ScatterplotLayer, PathLayer } from "@deck.gl/layers";
+import { ScatterplotLayer, PathLayer, LineLayer } from "@deck.gl/layers";
 
 import type { TrackData, DemLod, ViewState, ColorMode } from "../types";
 import { buildCurtainSegments, makeCurtainLayer } from "../layers/curtainLayer";
@@ -40,6 +40,8 @@ interface Props {
   /** Z-Offset in Metern, der auf alle Track-Hoehen vor der Z-Exaggeration
    *  angewendet wird. Wird vom OffsetSlider gespeist. Default 0. */
   zOffset?: number;
+  /** G-Vektor-Pfeile am aktiven Punkt anzeigen (Laengs=gruen, Quer=orange, Vertikal=blau). */
+  showGVec?: boolean;
 }
 
 function buildInitialViewState(track: TrackData): ViewState {
@@ -55,7 +57,11 @@ function buildInitialViewState(track: TrackData): ViewState {
 
 const FALLBACK: Rgba = [150, 150, 150, 180];
 
-export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, charts, showCharts, zScale, onZoomChange, onPointPick, showTooltip = false, cutRanges = [], zOffset = 0 }: Props) {
+const M_PER_DEG = 111_320;
+// Massstab: 1 m/s² = 30 m Pfeillaenge in Bodenprojektionsdistanz.
+const ARROW_SCALE = 30;
+
+export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, charts, showCharts, zScale, onZoomChange, onPointPick, showTooltip = false, cutRanges = [], zOffset = 0, showGVec = false }: Props) {
   const [viewState, setViewState] = useState<ViewState>(
     () => buildInitialViewState(track)
   );
@@ -177,6 +183,79 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
       .filter((x): x is { id: string; path: [number, number, number][]; color: [number, number, number, number] } => x !== null);
   }, [cutRanges, track, exagAlt]);
 
+  // G-Vektor-Pfeile am aktiven Punkt (Laengs=gruen, Quer=orange, Vertikal=blau).
+  const gVecArrows = useMemo(() => {
+    const pts = track.points;
+    if (
+      !showGVec ||
+      !Array.isArray(pts.accel_long_mps2) ||
+      !Array.isArray(pts.accel_lateral_mps2) ||
+      !Array.isArray(pts.accel_vertical_mps2) ||
+      !Array.isArray(pts.accel_heading_e) ||
+      !Array.isArray(pts.accel_heading_n)
+    ) return [];
+
+    const idx = Math.max(0, Math.min(activeIdx, pts.lon.length - 1));
+    const lon0 = pts.lon[idx];
+    const lat0 = pts.lat[idx];
+    const alt0 = exagAlt(pts.alt[idx]);
+    const cosLat = Math.cos((lat0 * Math.PI) / 180);
+
+    const he = pts.accel_heading_e[idx];
+    const hn = pts.accel_heading_n[idx];
+    const aLong = pts.accel_long_mps2[idx];
+    const aLat = pts.accel_lateral_mps2[idx];
+    const aVert = pts.accel_vertical_mps2[idx];
+
+    if (
+      he === null || hn === null ||
+      !Number.isFinite(he as number) || !Number.isFinite(hn as number)
+    ) return [];
+
+    const arrows: { from: [number, number, number]; to: [number, number, number]; color: [number, number, number, number] }[] = [];
+
+    // Laengsbeschleunigung (gruen): entlang Heading
+    if (aLong !== null && Number.isFinite(aLong as number)) {
+      const dm = (aLong as number) * ARROW_SCALE;
+      arrows.push({
+        from: [lon0, lat0, alt0],
+        to: [
+          lon0 + (he as number) * dm / (M_PER_DEG * cosLat),
+          lat0 + (hn as number) * dm / M_PER_DEG,
+          alt0,
+        ],
+        color: [50, 220, 80, 255],
+      });
+    }
+
+    // Querbeschleunigung (orange): senkrecht zur Fahrtrichtung (+links)
+    if (aLat !== null && Number.isFinite(aLat as number)) {
+      const dm = (aLat as number) * ARROW_SCALE;
+      // perpendicular CCW: (-hn, he)
+      arrows.push({
+        from: [lon0, lat0, alt0],
+        to: [
+          lon0 + (-(hn as number)) * dm / (M_PER_DEG * cosLat),
+          lat0 + (he as number) * dm / M_PER_DEG,
+          alt0,
+        ],
+        color: [230, 140, 30, 255],
+      });
+    }
+
+    // Vertikalbeschleunigung (blau): hoch/runter (mit Z-Exaggeration)
+    if (aVert !== null && Number.isFinite(aVert as number)) {
+      const dz = (aVert as number) * ARROW_SCALE * Z_SCALE;
+      arrows.push({
+        from: [lon0, lat0, alt0],
+        to: [lon0, lat0, alt0 + dz],
+        color: [80, 160, 240, 255],
+      });
+    }
+
+    return arrows;
+  }, [track, activeIdx, showGVec, exagAlt, Z_SCALE]);
+
   const layers = useMemo(() => {
     const result = [];
 
@@ -246,6 +325,24 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
       },
     }));
 
+    // G-Vektor-Pfeile: Laengs (gruen), Quer (orange), Vertikal (blau).
+    if (gVecArrows.length > 0) {
+      result.push(new LineLayer({
+        id: "gvec-arrows",
+        data: gVecArrows,
+        getSourcePosition: (d: any) => d.from,
+        getTargetPosition: (d: any) => d.to,
+        getColor: (d: any) => d.color,
+        getWidth: 3,
+        widthUnits: "pixels",
+        pickable: false,
+        updateTriggers: {
+          getSourcePosition: [activeIdx, showGVec],
+          getTargetPosition: [activeIdx, showGVec],
+        },
+      }));
+    }
+
     // Unsichtbarer Pickable-Layer ueber dem Track, damit der Nutzer mit
     // Maus/Touch einen einzelnen Punkt selektieren kann (synchronisiert
     // Slider, InfoPanel und Skyplot). PathLayer selbst ist nicht
@@ -285,7 +382,7 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
     return result;
   }, [dem, curtainSegments, pathSegments, activePt, colorMode, showCurtain,
       charts, showCharts, altBase, Z_SCALE, exagAlt, activeIdx, track, onPointPick,
-      cutPaths]);
+      cutPaths, gVecArrows, showGVec]);
 
   const handleViewStateChange = useCallback(({ viewState: vs }: any) => {
     setViewState(vs);

@@ -91,6 +91,85 @@ def energy_rate(
     return central_time_derivative(energy_height(speed_kmh, alt, ts_s), ts_s)
 
 
+_M_PER_DEG = 111_320.0
+_MIN_H_SPEED_MPS = 0.5  # unter diesem Wert ist kein Heading definierbar
+
+
+def decompose_acceleration(
+    lat: np.ndarray,
+    lon: np.ndarray,
+    alt: np.ndarray,
+    ts_s: np.ndarray,
+    smooth: bool = False,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Zerlegt die Beschleunigung in Laengs-, Quer- und Vertikalanteil (m/s²).
+
+    Koordinatensystem (ENU, Flacherd-Naeherung):
+      - Laengs (long):    entlang der Fahrtrichtung  (+ = beschleunigen)
+      - Lateral (lat_a):  senkrecht zur Fahrtrichtung (+ = Linkskurve / CCW)
+      - Vertikal (vert):  senkrecht zur Erde          (+ = Aufwaerts-Beschl.)
+
+    Rueckgabe: (long_mps2, lateral_mps2, vertical_mps2, heading_e, heading_n)
+    Alle Arrays haben dieselbe Laenge wie die Eingabe-Arrays.
+    NaN, wo keine sinnvolle Berechnung moeglich ist (Anfang/Ende, Stillstand).
+
+    smooth=True (fuer Export): 3-Punkt gleitender Mittelwert auf long/lateral/vert
+    vor der Rueckgabe (wie im Traxel-TS-Port).
+    """
+    lat = np.asarray(lat, dtype=float)
+    lon = np.asarray(lon, dtype=float)
+    alt = np.asarray(alt, dtype=float)
+    ts_s = np.asarray(ts_s, dtype=float)
+    n = lat.shape[0]
+    nan_arr = lambda: np.full(n, np.nan)
+
+    if n < 3:
+        return nan_arr(), nan_arr(), nan_arr(), nan_arr(), nan_arr()
+
+    # --- ENU-Geschwindigkeit (m/s) ---
+    cos_lat = np.cos(np.radians(np.mean(lat)))  # Flacherd: ein cos fuer alle
+    # Zentrale Differenz der Koordinaten → Momentan-Offset in m
+    ve = central_time_derivative(lon * _M_PER_DEG * cos_lat, ts_s)  # Ost m/s
+    vn = central_time_derivative(lat * _M_PER_DEG, ts_s)            # Nord m/s
+    vz = central_time_derivative(alt, ts_s)                          # Hoch m/s
+
+    h_speed = np.sqrt(ve**2 + vn**2)  # Horizontale Geschwindigkeit
+
+    # --- Heading-Einheitsvektor (nur wo h_speed gross genug) ---
+    valid_h = h_speed > _MIN_H_SPEED_MPS
+    he = np.where(valid_h, ve / np.where(valid_h, h_speed, 1.0), np.nan)
+    hn = np.where(valid_h, vn / np.where(valid_h, h_speed, 1.0), np.nan)
+
+    # --- Beschleunigungskomponenten (zentrale Differenz der ENU-Geschwindigkeiten) ---
+    ae = central_time_derivative(ve, ts_s)
+    an = central_time_derivative(vn, ts_s)
+    az = central_time_derivative(vz, ts_s)
+
+    # --- Projektion auf Laengs/Quer/Vertikal ---
+    # Laengs: Skalarprodukt a_horiz · heading
+    a_long = np.where(valid_h, ae * he + an * hn, np.nan)
+    # Lateral: Kreuzprodukt (2D) heading × a_horiz = he*an - hn*ae
+    #          + bedeutet: Beschleunigung zeigt links der Fahrtrichtung (CCW)
+    a_lat = np.where(valid_h, he * an - hn * ae, np.nan)
+    # Vertikal: direkt az
+    a_vert = az
+
+    if smooth:
+        def _smooth3(arr: np.ndarray) -> np.ndarray:
+            out = arr.copy()
+            finite = np.isfinite(arr)
+            # Nur glaetten wo Nachbarn alle endlich sind
+            for i in range(1, n - 1):
+                if finite[i - 1] and finite[i] and finite[i + 1]:
+                    out[i] = (arr[i - 1] + arr[i] + arr[i + 1]) / 3.0
+            return out
+        a_long = _smooth3(a_long)
+        a_lat = _smooth3(a_lat)
+        a_vert = _smooth3(a_vert)
+
+    return a_long, a_lat, a_vert, he, hn
+
+
 def robust_symmetric_scale(values: np.ndarray, p: float = 0.98) -> float:
     """Robuste, symmetrische Skala fuer signierte Groessen: p-Perzentil der
     Betraege (Default 98 %), damit ein einzelner GPS-Spike die Farbskala nicht

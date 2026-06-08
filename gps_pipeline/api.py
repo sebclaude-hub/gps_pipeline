@@ -20,6 +20,7 @@ from .dataframe_io.feather import save_df
 from .parsing.nmea import parse_nmea_file
 from .parsing.nmea_to_dataframe import build_dataframe
 from .parsing.gpx import parse_gpx_file
+from .parsing.igc import parse_igc_file
 from .parsing.kml import parse_kml_file
 from .processing.filter import filter_invalid
 from .processing.consolidate import consolidate
@@ -128,6 +129,19 @@ def process_kml(file_path: Path) -> pd.DataFrame:
     """
     print(f"\n=== KML-Pipeline: {file_path} ===")
     df_b = parse_kml_file(str(file_path))
+    df_c = enrich_speed(df_b)
+    return df_c
+
+
+def process_igc(file_path: Path) -> pd.DataFrame:
+    """IGC-Pipeline: parsen (FAI-B-Records → Schema B) → enrich.
+
+    Returns
+    -------
+    df_enriched: Schema C
+    """
+    print(f"\n=== IGC-Pipeline: {file_path} ===")
+    df_b = parse_igc_file(str(file_path))
     df_c = enrich_speed(df_b)
     return df_c
 

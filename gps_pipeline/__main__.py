@@ -11,7 +11,7 @@ Die eigentlichen API-Funktionen liegen in ``api.py``. Direkt importieren via::
 from pathlib import Path
 
 from .api import (
-    process_nmea, process_gpx, process_kml,
+    process_nmea, process_gpx, process_kml, process_igc,
     render_visualizations, export_for_viewer, apply_sidecar_cuts,
 )
 from .parsing.chart import find_charts, is_chart_config
@@ -54,9 +54,10 @@ def main() -> None:
     ]
     gpx_files = sorted(input_dir.glob("*.gpx"))
     kml_files = sorted(input_dir.glob("*.kml"))
+    igc_files = sorted(input_dir.glob("*.igc"))
 
-    if not nmea_files and not gpx_files and not kml_files:
-        print(f"Keine NMEA-, GPX- oder KML-Dateien in {input_dir} gefunden.")
+    if not nmea_files and not gpx_files and not kml_files and not igc_files:
+        print(f"Keine NMEA-, GPX-, KML- oder IGC-Dateien in {input_dir} gefunden.")
         return
 
     def _viewer_dir(prefix: str) -> Path:
@@ -109,6 +110,23 @@ def main() -> None:
             name_prefix=prefix, dem_paths=dem_paths, charts=charts,
             derivation=derivation, source_file=path.name,
             suggested_z_offset=z_offset, source_type="kml",
+        )
+
+    for path in igc_files:
+        prefix = f"igc_{path.stem}"
+        df_c = process_igc(path)
+        if df_c.empty:
+            print(f"Track {path.name} ist leer (kein HFDTE-Datum oder keine 3D-Fixes?), "
+                  f"wird übersprungen.")
+            continue
+        _, df_c, derivation, z_offset = apply_sidecar_cuts(path, None, df_c)
+        render_visualizations(df_c, output_dir, name_prefix=prefix,
+                              dem_paths=dem_paths)
+        export_for_viewer(
+            df_c, _viewer_dir(prefix),
+            name_prefix=prefix, dem_paths=dem_paths, charts=charts,
+            derivation=derivation, source_file=path.name,
+            suggested_z_offset=z_offset, source_type="igc",
         )
 
     print(f"\nFertig. Output in {output_dir.resolve()}")

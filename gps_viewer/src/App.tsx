@@ -19,6 +19,7 @@ import type { ColorMode } from "./types";
 
 type CurtainMode = "on" | "off";
 type ChartsMode = "on" | "off";
+type GVecMode = "on" | "off";
 const Z_OPTIONS = [1, 2, 3, 5, 7.5, 10];
 import { formatDuration, formatDistance } from "./utils/formatters";
 
@@ -42,6 +43,7 @@ export default function App() {
   const [colorMode, setColorMode] = useState<ColorMode>("speed");
   const [curtainMode, setCurtainMode] = useState<CurtainMode>("on");
   const [chartsMode, setChartsMode] = useState<ChartsMode>("on");
+  const [gVecMode, setGVecMode] = useState<GVecMode>("off");
   const [zScale, setZScale] = useState<number>(3);
   // "both" als Default: Panel rechts UND Tooltip am Cursor. Wer es minimaler
   // mag, schaltet auf "panel" oder "tooltip" um.
@@ -120,6 +122,7 @@ export default function App() {
             showTooltip={infoMode === "tooltip" || infoMode === "both"}
             cutRanges={rangeApi.ranges}
             zOffset={zOffset}
+            showGVec={gVecMode === "on"}
           />
           <div style={togglesStyle}>
             <ColorModeSelect
@@ -144,6 +147,16 @@ export default function App() {
                 labels={[`Karten (${charts.length})`, "aus"]}
                 onChange={setChartsMode}
                 title="Karten-Overlays ein- oder ausblenden"
+              />
+            )}
+            {/* G-Vektor nur einblenden, wenn Pipeline die Zerlegung geliefert hat */}
+            {Array.isArray(track.points.accel_long_mps2) && (
+              <ToggleSwitch<GVecMode>
+                value={gVecMode}
+                options={["on", "off"]}
+                labels={["G-Vektor", "aus"]}
+                onChange={setGVecMode}
+                title="Beschleunigungspfeile am aktiven Punkt"
               />
             )}
             <InfoModeButtons value={infoMode} onChange={setInfoMode} />

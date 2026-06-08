@@ -11,7 +11,7 @@ export interface TrackBounds {
 
 export interface TrackMeta {
   name: string;
-  source_type: "nmea" | "gpx" | "kml";
+  source_type: "nmea" | "gpx" | "kml" | "igc";
   n_points: number;
   total_distance_m: number;
   duration_s: number;
@@ -67,6 +67,12 @@ export interface TrackPoints {
   accel_mps2?: (number | null)[];
   energy_height_m?: (number | null)[];
   energy_rate_mps?: (number | null)[];
+  // G-Vektor-Zerlegung (ENU): Laengs/Quer/Vertikal + Heading-Einheitsvektor.
+  accel_long_mps2?: (number | null)[];
+  accel_lateral_mps2?: (number | null)[];
+  accel_vertical_mps2?: (number | null)[];
+  accel_heading_e?: (number | null)[];
+  accel_heading_n?: (number | null)[];
   timestamp_ms: number[];
   speed_q_idx: number[];
   alt_q_idx: number[];
@@ -86,7 +92,7 @@ export interface TrackData {
   points: TrackPoints;
   /** Robuste symmetrische Skalen der signierten Groessen (Pipeline-gerechnet);
    *  der Viewer normiert raw/scale → [−1,1]. Optional (aeltere JSON). */
-  scales?: { accel_mps2: number; energy_rate_mps: number };
+  scales?: { accel_mps2: number; energy_rate_mps: number; gvec_mps2?: number };
 }
 
 // ---------------------------------------------------------------------------

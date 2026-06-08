@@ -25,6 +25,7 @@ import pandas as pd
 from ..config import DEFAULT_QUANTILES
 from ..processing.kinematics import (
     acceleration_3d,
+    decompose_acceleration,
     energy_height,
     energy_rate,
     robust_symmetric_scale,
@@ -212,6 +213,11 @@ def export_track_json(
     accel = acceleration_3d(speed_arr, alt_arr, ts_s)
     energy_h = energy_height(speed_arr, alt_arr, ts_s)
     energy_r = energy_rate(speed_arr, alt_arr, ts_s)
+    lat_arr = lat.astype(float).to_numpy()
+    lon_arr = lon.astype(float).to_numpy()
+    a_long, a_lateral, a_vert, hdg_e, hdg_n = decompose_acceleration(
+        lat_arr, lon_arr, alt_arr, ts_s, smooth=True
+    )
     # Quantilgrenzen fuer die vorzeichenlosen Modi (GND = above_terrain, Energie).
     agl_breaks, _ = _compute_quantile_breaks(above, n_quantiles)
     energy_breaks, _ = _compute_quantile_breaks(
@@ -220,6 +226,15 @@ def export_track_json(
     # Robuste, symmetrische Skalen fuer die signierten Modi (Beschl./ΔEnergie).
     accel_scale = robust_symmetric_scale(accel)
     energy_rate_scale = robust_symmetric_scale(energy_r)
+    gvec_scale = robust_symmetric_scale(
+        np.concatenate([
+            a_long[np.isfinite(a_long)],
+            a_lateral[np.isfinite(a_lateral)],
+            a_vert[np.isfinite(a_vert)],
+        ])
+        if (np.isfinite(a_long).any() or np.isfinite(a_lateral).any() or np.isfinite(a_vert).any())
+        else np.array([1.0])
+    )
 
     # Bounds
     bounds = {
@@ -275,6 +290,7 @@ def export_track_json(
         "scales": {
             "accel_mps2": round(float(accel_scale), 4),
             "energy_rate_mps": round(float(energy_rate_scale), 4),
+            "gvec_mps2": round(float(gvec_scale), 4),
         },
         "points": {
             "lat":          _safe_float_list(lat, 7),
@@ -288,6 +304,12 @@ def export_track_json(
             "accel_mps2":      _safe_float_list(accel, 3),
             "energy_height_m": _safe_float_list(energy_h, 1),
             "energy_rate_mps": _safe_float_list(energy_r, 3),
+            # G-Vektor-Zerlegung (ENU): Laengs/Quer/Vertikal + Heading.
+            "accel_long_mps2":     _safe_float_list(pd.Series(a_long), 3),
+            "accel_lateral_mps2":  _safe_float_list(pd.Series(a_lateral), 3),
+            "accel_vertical_mps2": _safe_float_list(pd.Series(a_vert), 3),
+            "accel_heading_e":     _safe_float_list(pd.Series(hdg_e), 4),
+            "accel_heading_n":     _safe_float_list(pd.Series(hdg_n), 4),
             "timestamp_ms": ts_ms,
             "speed_q_idx":  q_idx.tolist(),
             "alt_q_idx":    alt_q_idx.tolist(),
