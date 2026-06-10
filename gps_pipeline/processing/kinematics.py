@@ -97,12 +97,41 @@ _M_PER_DEG = 111_320.0
 _MIN_H_SPEED_MPS = 0.5  # unter diesem Wert ist kein Heading definierbar
 
 
+def _moving_average(arr: np.ndarray, window: int) -> np.ndarray:
+    """Zentriertes gleitendes Mittel ueber ``window`` Punkte (ungerade Anzahl;
+    ``<=1`` bedeutet keine Glaettung). NaN-sicher: pro Stelle wird ueber die
+    ENDLICHEN Werte im Fenster gemittelt; eine Stelle, die selbst NaN ist, bleibt
+    NaN (es wird kein Wert erfunden). An den Raendern schrumpft das Fenster.
+
+    Vektorisiert ueber Praefixsummen → O(n) statt einer Python-Schleife.
+    """
+    r = max(0, (int(window) - 1) // 2)
+    if r == 0:
+        return arr
+    n = arr.shape[0]
+    finite = np.isfinite(arr)
+    vals = np.where(finite, arr, 0.0)
+    # Praefixsummen von Werten und Anzahl → Fenstersumme/-anzahl in O(1)/Stelle.
+    csum = np.concatenate(([0.0], np.cumsum(vals)))
+    ccnt = np.concatenate(([0], np.cumsum(finite.astype(np.int64))))
+    idx = np.arange(n)
+    lo = np.clip(idx - r, 0, n)
+    hi = np.clip(idx + r + 1, 0, n)
+    wsum = csum[hi] - csum[lo]
+    wcnt = ccnt[hi] - ccnt[lo]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        mean = wsum / wcnt
+    # Nur glaetten, wo der Mittelpunkt selbst endlich ist (sonst Original → NaN
+    # bleibt NaN). wcnt>0 ist dort immer erfuellt (das Fenster enthaelt i).
+    return np.where(finite & (wcnt > 0), mean, arr)
+
+
 def decompose_acceleration(
     lat: np.ndarray,
     lon: np.ndarray,
     alt: np.ndarray,
     ts_s: np.ndarray,
-    smooth: bool = False,
+    smooth_window: int = 1,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Zerlegt die Beschleunigung in Laengs-, Quer- und Vertikalanteil (m/s²).
 
@@ -115,8 +144,11 @@ def decompose_acceleration(
     Alle Arrays haben dieselbe Laenge wie die Eingabe-Arrays.
     NaN, wo keine sinnvolle Berechnung moeglich ist (Anfang/Ende, Stillstand).
 
-    smooth=True (fuer Export): 3-Punkt gleitender Mittelwert auf long/lateral/vert
-    vor der Rueckgabe (wie im Traxel-TS-Port).
+    ``smooth_window`` (ungerade Punktzahl): glaettet long/lateral/vert mit einem
+    zentrierten gleitenden Mittel, bevor zurueckgegeben wird — daempft das
+    Funkeln der doppelten Differentiation. ``1`` (Default) = keine Glaettung,
+    ``3`` = 3-Punkt, ``5`` = 5-Punkt usw. Die Richtungs-Einheitsvektoren
+    (heading_e/n, aus der 1. Ableitung) bleiben ungeglaettet.
     """
     lat = np.asarray(lat, dtype=float)
     lon = np.asarray(lon, dtype=float)
@@ -156,18 +188,10 @@ def decompose_acceleration(
     # Vertikal: direkt az
     a_vert = az
 
-    if smooth:
-        def _smooth3(arr: np.ndarray) -> np.ndarray:
-            out = arr.copy()
-            finite = np.isfinite(arr)
-            # Nur glaetten wo Nachbarn alle endlich sind
-            for i in range(1, n - 1):
-                if finite[i - 1] and finite[i] and finite[i + 1]:
-                    out[i] = (arr[i - 1] + arr[i] + arr[i + 1]) / 3.0
-            return out
-        a_long = _smooth3(a_long)
-        a_lat = _smooth3(a_lat)
-        a_vert = _smooth3(a_vert)
+    if smooth_window and smooth_window > 1:
+        a_long = _moving_average(a_long, smooth_window)
+        a_lat = _moving_average(a_lat, smooth_window)
+        a_vert = _moving_average(a_vert, smooth_window)
 
     return a_long, a_lat, a_vert, he, hn
 

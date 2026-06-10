@@ -16,7 +16,10 @@ import numpy as np
 import pytest
 
 # Muss vor den Tests importierbar sein (implementiert in kinematics.py).
-from gps_pipeline.processing.kinematics import decompose_acceleration
+from gps_pipeline.processing.kinematics import (
+    _moving_average,
+    decompose_acceleration,
+)
 
 M_PER_DEG = 111_320.0
 
@@ -231,3 +234,68 @@ class TestDecomposeAcceleration:
         # Alle Heading-Werte sollen NaN sein (Geschwindigkeit = 0)
         assert np.all(~np.isfinite(he)), "Standstill: he soll ueberall NaN sein"
         assert np.all(~np.isfinite(hn)), "Standstill: hn soll ueberall NaN sein"
+
+
+class TestMovingAverage:
+    """Tests fuer das vektorisierte, fensterbare gleitende Mittel."""
+
+    def test_window_1_is_noop(self):
+        arr = np.array([1.0, 5.0, 2.0, 8.0, 3.0])
+        np.testing.assert_array_equal(_moving_average(arr, 1), arr)
+
+    def test_three_point_mean_inner(self):
+        arr = np.array([0.0, 3.0, 0.0, 0.0, 0.0])
+        out = _moving_average(arr, 3)
+        # Mittelpunkt 1: (0+3+0)/3 = 1; Nachbarn ziehen den Spike herunter.
+        assert out[1] == pytest.approx(1.0)
+        assert out[2] == pytest.approx(1.0)
+
+    def test_dampens_spike(self):
+        arr = np.zeros(11)
+        arr[5] = 10.0
+        peak1 = np.max(np.abs(_moving_average(arr, 3)))
+        peak2 = np.max(np.abs(_moving_average(arr, 5)))
+        assert peak1 < 10.0  # 3-Punkt senkt die Spitze
+        assert peak2 < peak1  # 5-Punkt senkt sie weiter
+
+    def test_nan_center_stays_nan_neighbors_ignored(self):
+        arr = np.array([2.0, np.nan, 4.0, 6.0])
+        out = _moving_average(arr, 3)
+        assert np.isnan(out[1]), "NaN-Mittelpunkt bleibt NaN (kein Wert erfunden)"
+        # out[2] mittelt nur die endlichen Nachbarn {4, 6} (NaN ignoriert) = 5.
+        assert out[2] == pytest.approx(5.0)
+
+    def test_edges_shrink_window(self):
+        arr = np.array([1.0, 2.0, 3.0])
+        out = _moving_average(arr, 3)
+        assert out[0] == pytest.approx(1.5)  # nur {1,2}
+        assert out[2] == pytest.approx(2.5)  # nur {2,3}
+
+
+class TestDecomposeSmoothing:
+    """smooth_window glaettet die Komponenten, nicht aber die Headings."""
+
+    def test_smoothing_dampens_lateral_spike(self):
+        # Kreisbahn mit einem injizierten Hoehen-Ausreisser → Spike in vert/lat.
+        lats, lons, alts, ts_s = circle_track(
+            radius_m=50.0, speed_mps=10.0, n_points=60, ccw=True
+        )
+        alts = alts.copy()
+        alts[30] += 5.0  # einzelner GPS-Hoehenspike
+
+        def peak_vert(win):
+            _, _, vert, _, _ = decompose_acceleration(
+                lats, lons, alts, ts_s, smooth_window=win
+            )
+            return np.nanmax(np.abs(vert))
+
+        assert peak_vert(3) < peak_vert(1), "3-Punkt-Glaettung senkt den Spike"
+
+    def test_headings_unchanged_by_smoothing(self):
+        lats, lons, alts, ts_s = circle_track(
+            radius_m=50.0, speed_mps=10.0, n_points=40, ccw=True
+        )
+        _, _, _, he1, hn1 = decompose_acceleration(lats, lons, alts, ts_s, smooth_window=1)
+        _, _, _, he5, hn5 = decompose_acceleration(lats, lons, alts, ts_s, smooth_window=5)
+        np.testing.assert_array_equal(he1, he5)
+        np.testing.assert_array_equal(hn1, hn5)

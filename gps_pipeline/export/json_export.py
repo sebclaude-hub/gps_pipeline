@@ -216,7 +216,7 @@ def export_track_json(
     lat_arr = lat.astype(float).to_numpy()
     lon_arr = lon.astype(float).to_numpy()
     a_long, a_lateral, a_vert, hdg_e, hdg_n = decompose_acceleration(
-        lat_arr, lon_arr, alt_arr, ts_s, smooth=True
+        lat_arr, lon_arr, alt_arr, ts_s, smooth_window=3
     )
     # Quantilgrenzen fuer die vorzeichenlosen Modi (GND = above_terrain, Energie).
     agl_breaks, _ = _compute_quantile_breaks(above, n_quantiles)
