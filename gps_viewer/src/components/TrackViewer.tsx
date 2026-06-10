@@ -167,7 +167,7 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
     const colorByMode: Record<CutRange["mode"], [number, number, number, number]> = {
       trim:      [220, 60, 60, 230],
       gap:       [70, 180, 90, 230],
-      synthetic: [80, 130, 220, 230],
+      bridge:    [80, 130, 220, 230],
     };
     return cutRanges
       .map((r) => {
@@ -410,7 +410,7 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
     // sichtbaren Z-Wert in der 3D-Szene uebereinstimmt.
     const altShown = (alt !== null) ? alt + zOffset : null;
 
-    const isSynth = track.points.is_synthetic?.[idx] ?? false;
+    const isBridged = track.points.is_bridged?.[idx] ?? false;
 
     // Minimal-HTML -- nur die wichtigsten Werte, damit der Tooltip kompakt
     // bleibt und den Blick auf den Track nicht zu sehr verdeckt.
@@ -425,7 +425,7 @@ export function TrackViewer({ track, dem, activeIdx, colorMode, showCurtain, cha
       const lbl = colorMode === "accel" ? "Beschl." : "ΔEnergie";
       lines.push(`${lbl} ${sr >= 0 ? "+" : "−"}${Math.abs(sr).toFixed(1)} ${signedUnit}`);
     }
-    if (isSynth) lines.push('<span style="color:#f4c0c0">&#9888; Zeitstempel verschoben</span>');
+    if (isBridged) lines.push('<span style="color:#f4c0c0">&#9888; Zeitstempel verschoben</span>');
 
     return {
       html: lines.map((l) => `<div>${l}</div>`).join(""),

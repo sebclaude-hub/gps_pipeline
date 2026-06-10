@@ -28,7 +28,7 @@ export interface TrackMeta {
    *  ``<source>.cuts.json`` geschrieben, die beim Export gespeichert wird. */
   source_file?: string | null;
   /** Legacy-Feld -- frueher fuer das DerivationBanner verwendet. Wird
-   *  vom aktuellen Frontend ignoriert (Synthetic-Warnung erscheint
+   *  vom aktuellen Frontend ignoriert (Bridge-Warnung erscheint
    *  punktgenau im InfoPanel). Bleibt im Type, damit aeltere track.json
    *  ohne Warnung gelesen werden koennen. */
   derivation?: unknown;
@@ -39,7 +39,7 @@ export interface QuantileBreaks {
   altitude_m: number[];
   /** Hoehe ueber Grund (AGL) — fuer "altitude_gnd". Optional (aeltere JSON). */
   altitude_gnd_m?: number[];
-  /** Spezifische Energiehoehe — fuer "energy". Optional (aeltere JSON). */
+  /** Spezifische Energie (Hoehenaequivalent) — fuer "energy". Optional. */
   energy_height_m?: number[];
   n_quantiles: number;
 }
@@ -81,9 +81,9 @@ export interface TrackPoints {
   num_sats?: (number | null)[];
   hdop?: (number | null)[];
   vdop?: (number | null)[];
-  /** True wenn der Timestamp dieses Punktes durch einen synthetic-Cut
-   *  verschoben wurde. Pro-Punkt-Warnung im InfoPanel. */
-  is_synthetic?: boolean[];
+  /** True wenn der Timestamp dieses Punktes durch einen bridge-Cut
+   *  (Ueberbruecken) verschoben wurde. Pro-Punkt-Warnung im InfoPanel. */
+  is_bridged?: boolean[];
 }
 
 export interface TrackData {

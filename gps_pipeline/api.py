@@ -50,7 +50,7 @@ def apply_sidecar_cuts(
 
     Liefert ``(df_raw, df_c, derivation, z_offset_m)`` zurueck:
 
-    * ``derivation`` ist ein Banner-Dict (Trim / Gap / Synthetic), oder
+    * ``derivation`` ist ein Banner-Dict (Trim / Gap / Bridge), oder
       ``None`` wenn nichts angewendet wurde.
     * ``z_offset_m`` ist der aus der Datei gelesene Anzeige-Offset (Default
       0.0). Wird vom Backend NICHT auf die Track-Daten angewendet -- der
@@ -262,7 +262,7 @@ def export_for_viewer(
         Markiert diesen Track als bearbeitete Version eines anderen.
         Wird im Viewer als Warnhinweis-Banner angezeigt. Erwartete
         Struktur z.B. ``{"type": "trimmed", "source_name": "...", "n_cuts": ...}``
-        oder ``{"type": "synthetic", "source_name": "...", "warning": "..."}``.
+        oder ``{"type": "bridge", "source_name": "...", "warning": "..."}``.
 
     Returns
     -------

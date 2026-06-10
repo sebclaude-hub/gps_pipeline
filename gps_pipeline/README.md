@@ -62,7 +62,7 @@ Volle Schema-Definitionen und Designentscheidungen: siehe
 | `config.py` | Zentrale Konstanten (Filter-Schwellen, DEM-Auflösungen, …) |
 | `api.py` | High-Level-API (`process_*`, `export_for_viewer`, `apply_sidecar_cuts`, `render_*`) |
 | `parsing/` | NMEA / GPX / KML / Chart-Parser, Schnittanweisungs-Parser (cut_config) |
-| `processing/` | Filter, Consolidate, Enrich, Cut-Anwendung (trim/gap/synthetic), GSV-Aggregate |
+| `processing/` | Filter, Consolidate, Enrich, Cut-Anwendung (trim/gap/bridge), GSV-Aggregate |
 | `terrain/dem.py` | GeoTIFF-DEM laden, samplen, Track-Vergleich |
 | `visualization/` | Plotly-HTML-Pfade (3D, Skyplot, Multi-Track, Track+Sat) |
 | `export/` | JSON-Exporte für den React-Viewer (Track, DEM-LODs, Charts) |

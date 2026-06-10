@@ -19,8 +19,8 @@ const OPTIONS: { value: ColorMode; label: string; need: Need }[] = [
   { value: "flight",       label: "Flug",     need: "terrain" },
   { value: "drone",        label: "Drohne",   need: "terrain" },
   { value: "accel",        label: "Beschl.",  need: "derived" },
-  { value: "energy",       label: "Energie",  need: "derived" },
-  { value: "energy_rate",  label: "ΔEnergie", need: "derived" },
+  { value: "energy",       label: "Spez. Energie", need: "derived" },
+  { value: "energy_rate",  label: "Energierate",   need: "derived" },
 ];
 
 /**

@@ -70,7 +70,7 @@ function droneColor(altAgl: number | null): Rgba {
 /** Maximalabstand (Grad) zwischen zwei aufeinanderfolgenden Track-Punkten,
  *  bevor wir den Curtain in Sub-Segmente zerlegen. ~0.0009 deg ≈ 100 m
  *  am Aequator (in DE etwas weniger nord-suedlich, etwas mehr ost-westlich).
- *  Bei Schnitten (gap/synthetic) sind die Sprunge oft km-gross -- diese
+ *  Bei Schnitten (gap/bridge) sind die Sprunge oft km-gross -- diese
  *  Schwelle filtert nur die echt grossen Luecken heraus, ohne den normalen
  *  ~5m-Spacing zu beruehren. */
 const SUBDIVIDE_THRESHOLD_DEG = 0.0009;
@@ -212,7 +212,7 @@ export function buildCurtainSegments(
       continue;
     }
 
-    // Lange Luecke (z.B. nach Gap/Synthetic-Cut): in Sub-Segmente
+    // Lange Luecke (z.B. nach Gap/Bridge-Cut): in Sub-Segmente
     // zerlegen, damit der Vorhang dem Gelaende-Profil folgt statt
     // eine breite Rechteckwand zu zeigen.
     const nSub = Math.min(

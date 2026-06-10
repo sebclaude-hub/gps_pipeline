@@ -184,10 +184,10 @@ def export_track_json(
     num_sats = df_c.get("gga_num_sats", pd.Series(np.nan, index=df_c.index))
     hdop = df_c.get("gga_hdop", pd.Series(np.nan, index=df_c.index))
     vdop = df_c.get("gsa_vdop", pd.Series(np.nan, index=df_c.index))
-    # is_synthetic markiert Punkte, deren Timestamp durch einen
-    # synthetic-Cut verschoben wurde. Bei reinen trim/gap-Tracks oder
-    # ohne Cut komplett False.
-    is_synth = df_c.get("is_synthetic", pd.Series(False, index=df_c.index))
+    # is_bridged markiert Punkte, deren Timestamp durch einen
+    # bridge-Cut (Ueberbruecken) verschoben wurde. Bei reinen trim/gap-Tracks
+    # oder ohne Cut komplett False.
+    is_bridged = df_c.get("is_bridged", pd.Series(False, index=df_c.index))
 
     # Timestamps → Unix ms (int). ROBUST gegen die datetime-Aufloesung:
     # pd.to_datetime liefert je nach pandas-Version [ns] ODER [us] (neuere
@@ -269,7 +269,7 @@ def export_track_json(
             # Vorschlag fuer den Offset-Slider im Viewer. Nicht in alt/above
             # vorgebacken -- der Viewer wendet es als initialen Slider-Wert an.
             "suggested_z_offset_m": round(float(suggested_z_offset), 2),
-            # Markiert den Track als bearbeitete Version (Trim, Synthetic, ...).
+            # Markiert den Track als bearbeitete Version (Trim, Bridge, ...).
             # Wird vom Viewer als Banner angezeigt. None/leer = Originaltrack.
             "derivation": derivation,
             # Dateiname der Quelldatei -- der Viewer schreibt ihn beim
@@ -279,7 +279,7 @@ def export_track_json(
         "quantile_breaks": {
             "speed_kmh": breaks,
             "altitude_m": alt_breaks,
-            # Hoehe ueber Grund (AGL) und spezifische Energiehoehe — fuer die
+            # Hoehe ueber Grund (AGL) und spezifische Energie — fuer die
             # neuen Farbmodi. Werden viewer-seitig nur noch auf Farbe gemappt.
             "altitude_gnd_m": agl_breaks,
             "energy_height_m": energy_breaks,
@@ -317,7 +317,7 @@ def export_track_json(
             "num_sats":     _safe_list(num_sats, dtype=int),
             "hdop":         _safe_float_list(hdop, 1),
             "vdop":         _safe_float_list(vdop, 1),
-            "is_synthetic": [bool(v) for v in is_synth.fillna(False).tolist()],
+            "is_bridged": [bool(v) for v in is_bridged.fillna(False).tolist()],
         },
     }
 

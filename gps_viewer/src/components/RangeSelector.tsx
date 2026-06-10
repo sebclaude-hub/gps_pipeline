@@ -1,6 +1,6 @@
 /**
  * RangeSelector -- UI fuer Cut-Range-Selektion mit drei Modi
- * (trim / gap / synthetic).
+ * (trim / gap / bridge).
  *
  * Eigenschaften der UI
  * --------------------
@@ -8,7 +8,7 @@
  *   * Cut-Bars sind nach Modus farbcodiert:
  *       trim       (rot, mit Schraffur fuer Edges) -- Muell-Entfernung am Rand
  *       gap        (gruen)   -- Punkte raus, sichtbare Luecke
- *       synthetic  (blau)    -- Punkte raus, Zeitachse zusammenrueckend
+ *       bridge     (blau)    -- Punkte raus, Zeitachse zusammenrueckend
  *   * Globaler Pill-Switch "Luecke / Zeit verschieben" entscheidet, was
  *     neue Middle-Cuts werden (und schaltet alle bestehenden Middle-
  *     Cuts mit). Edge-Cuts (start=0 oder end=N-1) bleiben immer trim.
@@ -64,12 +64,12 @@ const MODE_STYLES: Record<CutRange["mode"], ModeStyle> = {
     handle:    "#5d5",
     label:     "Gap",
   },
-  synthetic: {
+  bridge: {
     bgSolid:   "rgba(80, 130, 220, 0.45)",
     bgHatched: "repeating-linear-gradient(45deg, rgba(80,130,220,0.55) 0 6px, rgba(80,130,220,0.3) 6px 12px)",
     border:    "#46c",
     handle:    "#69e",
-    label:     "Synth",
+    label:     "Brücke",
   },
 };
 
@@ -324,7 +324,7 @@ function MiddleModeToggle({ value, onChange, disabled, title }: MiddleModeToggle
       title={title}
       onClick={() => {
         if (disabled) return;
-        onChange(isGap ? "synthetic" : "gap");
+        onChange(isGap ? "bridge" : "gap");
       }}
     >
       <div style={{
@@ -332,7 +332,7 @@ function MiddleModeToggle({ value, onChange, disabled, title }: MiddleModeToggle
         left: isGap ? 2 : "calc(50% + 0px)",
         background: isGap
           ? MODE_STYLES.gap.handle
-          : MODE_STYLES.synthetic.handle,
+          : MODE_STYLES.bridge.handle,
       }} />
       <span style={{
         ...toggleLabelStyle,

@@ -11,8 +11,9 @@
  *                       (start=0 oder end=N-1), weil dort nichts zu
  *                       ueberbruecken ist.
  *   * ``gap``       -- Punkte entfernen, Lücke im Track sichtbar lassen.
- *   * ``synthetic`` -- Punkte entfernen UND nachfolgende Zeitstempel
- *                       nach vorne schieben.
+ *   * ``bridge``    -- "Ueberbruecken": Punkte entfernen UND nachfolgende
+ *                       Zeitstempel nach vorne schieben (Transparenz, nicht
+ *                       Verbergen; frueher irrefuehrend "synthetic").
  *
  * Die UI bietet einen globalen Toggle ("Middle-Mode") fuer ALLE
  * Middle-Cuts gemeinsam (kein Mischbetrieb in der UI -- das Datenformat
@@ -25,8 +26,8 @@
 
 import { useCallback, useState } from "react";
 
-export type CutMode = "trim" | "gap" | "synthetic";
-export type MiddleMode = "gap" | "synthetic";
+export type CutMode = "trim" | "gap" | "bridge";
+export type MiddleMode = "gap" | "bridge";
 
 export interface CutRange {
   /** Stabiler Schluessel fuer React-Listen. */
@@ -152,7 +153,7 @@ function findNeighbors(
 export function useRangeSelection(): RangeSelectionApi {
   const [ranges, setRanges] = useState<CutRange[]>([]);
   // Standard fuer neue Middle-Cuts: "gap" (sichtbare Luecke, harmloser
-  // Default). Der User schaltet bei Bedarf auf "synthetic" um.
+  // Default). Der User schaltet bei Bedarf auf "bridge" um.
   const [middleMode, setMiddleModeState] = useState<MiddleMode>("gap");
 
   const addRange = useCallback((centerIdx: number, totalPoints: number): boolean => {

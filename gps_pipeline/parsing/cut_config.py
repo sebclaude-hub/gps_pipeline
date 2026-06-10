@@ -25,7 +25,7 @@ Format
       "z_offset_m": 7,
       "cut_ranges": [
         {"start": 0,     "end": 49,    "mode": "trim"},
-        {"start": 200,   "end": 350,   "mode": "synthetic"},
+        {"start": 200,   "end": 350,   "mode": "bridge"},
         {"start": 600,   "end": 700,   "mode": "gap"},
         {"start": 24100, "end": 24137, "mode": "trim"}
       ],
@@ -39,11 +39,12 @@ Modi
                    IMMER forciert, egal was die Datei angibt.
 * ``gap``       -- Punkte entfernen, Timestamps unveraendert. Im Track
                    bleibt eine sichtbare Luecke; der Viewer warnt im Banner.
-* ``synthetic`` -- Punkte entfernen UND alle nachfolgenden Timestamps
-                   nach vorne verschieben (Brueckenzeit aus
+* ``bridge``    -- "Ueberbruecken": Punkte entfernen UND alle nachfolgenden
+                   Timestamps nach vorne verschieben (Brueckenzeit aus
                    Nachbarschafts-Speed). Erzeugt zusammenhaengende
                    Zeitachse, Sats werden mit-verschoben. Banner als
-                   Warnung.
+                   Warnung. Intention ist Transparenz, NICHT Verbergen
+                   (frueher irrefuehrend "synthetic"/"privacy" genannt).
 
 z_offset_m
 ----------
@@ -60,8 +61,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Optional
 
-CutMode = Literal["trim", "gap", "synthetic"]
-_VALID_MODES: tuple[CutMode, ...] = ("trim", "gap", "synthetic")
+CutMode = Literal["trim", "gap", "bridge"]
+_VALID_MODES: tuple[CutMode, ...] = ("trim", "gap", "bridge")
 
 
 @dataclass(frozen=True)
@@ -119,7 +120,7 @@ class CutConfig:
 
         Begruendung: Bei einem Cut am Anfang oder Ende gibt es nichts
         zu "ueberbruecken" (kein vorheriger / nachfolgender Punkt).
-        gap und synthetic sind dort semantisch identisch zu trim --
+        gap und bridge sind dort semantisch identisch zu trim --
         wir vereinheitlichen das, damit der Banner-Code nicht
         irrefuehrend warnt.
         """

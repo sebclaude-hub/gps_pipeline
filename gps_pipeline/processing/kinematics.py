@@ -2,8 +2,8 @@
 
 WARUM hier (Python) und nicht im Viewer
 ---------------------------------------
-Die Pipeline rechnet, der React-Viewer rendert nur. Beschleunigung, Energiehoehe
-und deren Aenderung sind ABGELEITETE Groessen (zeitliche Ableitungen), die nicht
+Die Pipeline rechnet, der React-Viewer rendert nur. Beschleunigung, spezifische
+Energie und deren Aenderung sind ABGELEITETE Groessen (zeitliche Ableitungen), die nicht
 direkt in den GPS/NMEA-Daten stehen. Sie werden hier numpy-vektorisiert berechnet
 und als fertige Per-Punkt-Arrays ins track.json exportiert; der Viewer mappt sie
 nur noch auf Farbe.
@@ -75,9 +75,11 @@ def acceleration_3d(
 def energy_height(
     speed_kmh: np.ndarray, alt: np.ndarray, ts_s: np.ndarray, g: float = G
 ) -> np.ndarray:
-    """Spezifische Energiehoehe H = h + v3D^2/(2g) (m), massenunabhaengig — die
-    Hoehe, auf die der Koerper stiege, wuerde er seine kinetische Energie ganz in
-    Hoehe umsetzen. NaN, wo Hoehe ODER Geschwindigkeit fehlt."""
+    """Spezifische Energie als Hoehenaequivalent H = h + v3D^2/(2g) (m),
+    massenunabhaengig — die Hoehe, auf die der Koerper stiege, wuerde er seine
+    kinetische Energie ganz in Hoehe umsetzen. NaN, wo Hoehe ODER Geschwindigkeit
+    fehlt. (Begriff: 'Spezifische Energie', nicht 'Energiehoehe' — der Wert hat
+    bewusst keine Korrelation zur raeumlichen Track-Hoehe.)"""
     alt = np.asarray(alt, dtype=float)
     v3 = speed_3d(speed_kmh, alt, ts_s)
     return alt + (v3 * v3) / (2.0 * g)

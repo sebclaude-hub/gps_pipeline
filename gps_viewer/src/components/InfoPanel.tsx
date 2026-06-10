@@ -42,7 +42,7 @@ export function InfoPanel({ track, activeIdx, zOffset = 0 }: Props) {
   const numSats   = pts.num_sats?.[idx] ?? null;
   const hdop      = pts.hdop?.[idx] ?? null;
   const vdop      = pts.vdop?.[idx] ?? null;
-  const isSynth   = pts.is_synthetic?.[idx] ?? false;
+  const isBridged = pts.is_bridged?.[idx] ?? false;
   const total     = pts.lat.length;
 
   return (
@@ -67,9 +67,9 @@ export function InfoPanel({ track, activeIdx, zOffset = 0 }: Props) {
           <Row label="VDOP"        value={vdop !== null ? vdop.toFixed(1) : "–"} />
         </tbody>
       </table>
-      {isSynth && (
-        <div style={synthWarnStyle}>
-          ⚠ Zeitstempel verschoben (Synthetic-Cut). Satellitendaten dieses
+      {isBridged && (
+        <div style={bridgeWarnStyle}>
+          ⚠ Zeitstempel verschoben (Überbrücken-Cut). Satellitendaten dieses
           Punktes gehoeren zu einer anderen tatsaechlichen Zeit.
         </div>
       )}
@@ -131,7 +131,7 @@ const valueStyle: React.CSSProperties = {
   paddingBottom: 4,
   verticalAlign: "top",
 };
-const synthWarnStyle: React.CSSProperties = {
+const bridgeWarnStyle: React.CSSProperties = {
   marginTop: 10,
   padding: "6px 8px",
   fontSize: 11,

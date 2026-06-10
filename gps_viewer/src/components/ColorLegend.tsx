@@ -20,7 +20,7 @@ const GRADIENT_META: Partial<Record<ColorMode, { label: string; unit: string }>>
   speed: { label: "Geschwindigkeit", unit: "km/h" },
   altitude: { label: "Höhe (MSL)", unit: "m" },
   altitude_gnd: { label: "Höhe (GND)", unit: "m" },
-  energy: { label: "Energiehöhe", unit: "m" },
+  energy: { label: "Spezifische Energie", unit: "m" },
 };
 
 /**

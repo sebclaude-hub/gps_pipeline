@@ -15,10 +15,10 @@ Drei Schnitt-Modi
                    System fuer Edge-Cuts (Anfang/Ende) IMMER forciert.
 * ``gap``       -- Punkte entfernen, Timestamps unveraendert. Im Track
                    bleibt eine sichtbare Luecke.
-* ``synthetic`` -- Punkte entfernen UND alle nachfolgenden Timestamps
-                   nach vorne verschieben. Brueckenzeit aus
-                   Nachbarschafts-Speed (siehe
-                   ``processing.synthetic.create_synthetic_track``).
+* ``bridge``    -- "Ueberbruecken": Punkte entfernen UND alle nachfolgenden
+                   Timestamps nach vorne verschieben. Brueckenzeit aus
+                   Nachbarschafts-Speed. Intention ist Transparenz, NICHT
+                   Verbergen (frueher irrefuehrend "synthetic"/"privacy").
 
 Derivation-Output
 -----------------
@@ -27,8 +27,8 @@ Viewer als Banner angezeigt wird:
 
 * Nur trim-Cuts -> ``None`` (kein Banner -- Muell-Entfernung am Rand
   ist unauffaellig).
-* Mindestens ein gap-Cut, kein synthetic -> Info-Banner.
-* Mindestens ein synthetic-Cut (auch in Mischung) -> Warn-Banner
+* Mindestens ein gap-Cut, kein bridge -> Info-Banner.
+* Mindestens ein bridge-Cut (auch in Mischung) -> Warn-Banner
   ("Zeitstempel verschoben, GSV-Bursts unter verschobenen Zeitstempeln").
 """
 
@@ -73,7 +73,7 @@ def _avg_speed_kmh_around(
     return 50.0
 
 
-def _compute_synthetic_shift_s(
+def _compute_bridge_shift_s(
     df_c: pd.DataFrame,
     spec: CutSpec,
     ts: pd.Series,
@@ -88,7 +88,7 @@ def _compute_synthetic_shift_s(
     """
     if geodesic is None:
         raise ImportError(
-            "geopy ist nicht installiert -- synthetic-Modus benoetigt "
+            "geopy ist nicht installiert -- bridge-Modus benoetigt "
             "geopy.distance.geodesic.")
 
     lo, hi = spec.start, spec.end
@@ -108,7 +108,7 @@ def _compute_synthetic_shift_s(
     bridge_s = bridge_m / avg_ms
 
     shift_s = pause_s - bridge_s
-    print(f"  Cut [{lo}..{hi}] synthetic: Pause {pause_s:.0f}s, "
+    print(f"  Cut [{lo}..{hi}] bridge: Pause {pause_s:.0f}s, "
           f"Brueckenfahrt ~{bridge_s:.0f}s "
           f"(avg {avg_kmh:.1f} km/h, dist {bridge_m:.0f}m) "
           f"-> Verschiebung {shift_s:+.0f}s")
@@ -175,7 +175,7 @@ def apply_cut_config(
     # Pro Schema-C-Zeile: behalten? + akkumulierter Shift nach diesem Punkt?
     keep_c = np.ones(n_c_before, dtype=bool)
     shift_after_idx_s = np.zeros(n_c_before, dtype=float)
-    is_synth = np.zeros(n_c_before, dtype=bool)
+    is_bridged = np.zeros(n_c_before, dtype=bool)
 
     # Fuer df_raw-Filter: Liste der (ts_lo, ts_hi)-Intervalle, die gedroppt
     # werden. Wir filtern df_raw spaeter ueber Timestamps, nicht ueber Index.
@@ -184,7 +184,7 @@ def apply_cut_config(
     # mit ts >= ts_after kriegen shift_s subtrahiert. ts_after = ts[hi+1].
     shift_breakpoints: list[tuple[pd.Timestamp, float]] = []
 
-    counts = {"trim": 0, "gap": 0, "synthetic": 0}
+    counts = {"trim": 0, "gap": 0, "bridge": 0}
     total_shift = 0.0
 
     for spec in config.cut_ranges:
@@ -202,19 +202,19 @@ def apply_cut_config(
         if pd.notna(ts_lo_cut) and pd.notna(ts_hi_cut):
             drop_intervals.append((ts_lo_cut, ts_hi_cut))
 
-        if spec.mode != "synthetic":
+        if spec.mode != "bridge":
             continue
 
-        # Edge-Synthetic kann es nach force_edge_trim nicht mehr geben.
+        # Edge-Bridge kann es nach force_edge_trim nicht mehr geben.
         # Defensive: trotzdem skippen.
         if lo == 0 or hi == n_c_before - 1:
             continue
 
-        shift_s = _compute_synthetic_shift_s(
+        shift_s = _compute_bridge_shift_s(
             df_c, spec, ts_c, lat, lon, interp_n)
         total_shift += shift_s
         shift_after_idx_s[hi + 1:] += shift_s
-        is_synth[hi + 1:] = True
+        is_bridged[hi + 1:] = True
         # Shift wirkt ab dem ersten behaltenen Punkt nach dem Cut.
         ts_after = ts_c.iloc[hi + 1]
         if pd.notna(ts_after):
@@ -226,13 +226,13 @@ def apply_cut_config(
         shift_td = pd.to_timedelta(shift_after_idx_s, unit="s")
         shifted = ts_c - shift_td
         df_c_new["timestamp_utc"] = shifted[keep_c].reset_index(drop=True)
-    # is_synthetic IMMER als Spalte setzen (False fuer alle, wenn kein
-    # synthetic-Cut). Erleichtert dem Frontend die Logik.
-    df_c_new["is_synthetic"] = is_synth[keep_c]
+    # is_bridged IMMER als Spalte setzen (False fuer alle, wenn kein
+    # bridge-Cut). Erleichtert dem Frontend die Logik.
+    df_c_new["is_bridged"] = is_bridged[keep_c]
 
     print(f"apply_cut_config: {n_c_before} -> {len(df_c_new)} Punkte "
           f"(trim={counts['trim']}, gap={counts['gap']}, "
-          f"synthetic={counts['synthetic']})")
+          f"bridge={counts['bridge']})")
 
     # ----- Schema A anwenden (sofern vorhanden) -----
     df_raw_new: Optional[pd.DataFrame] = None
@@ -261,7 +261,7 @@ def _apply_to_raw(
     * Zeilen mit ``timestamp_utc`` in einem Drop-Intervall (inklusive
       beider Grenzen) werden entfernt.
     * Verbleibende Zeilen mit ``timestamp_utc >= ts_after`` kriegen
-      die kumulierte Verschiebung subtrahiert (synthetic-Cuts).
+      die kumulierte Verschiebung subtrahiert (bridge-Cuts).
     * Zeilen ohne ``timestamp_utc`` (NaT) bleiben unveraendert -- wir
       wissen nicht, wo sie zeitlich hingehoeren.
     """
@@ -309,14 +309,14 @@ def _build_derivation(
 ) -> Optional[dict]:
     """Baut das ``meta.derivation``-Dict je nach Cut-Mischung.
 
-    * Nur trim                      -> None  (kein Banner)
-    * gap (ohne synthetic)          -> Info-Severity
-    * Mit synthetic (auch Mischung) -> Warn-Severity
+    * Nur trim                   -> None  (kein Banner)
+    * gap (ohne bridge)          -> Info-Severity
+    * Mit bridge (auch Mischung) -> Warn-Severity
     """
     n_trim = counts["trim"]
     n_gap = counts["gap"]
-    n_synth = counts["synthetic"]
-    n_total = n_trim + n_gap + n_synth
+    n_bridge = counts["bridge"]
+    n_total = n_trim + n_gap + n_bridge
 
     if n_total == 0:
         return None
@@ -326,16 +326,16 @@ def _build_derivation(
         "n_cuts": n_total,
         "n_trim_cuts": n_trim,
         "n_gap_cuts": n_gap,
-        "n_synthetic_cuts": n_synth,
+        "n_bridge_cuts": n_bridge,
         "n_points_before": n_before,
         "n_points_after": n_after,
         "n_points_removed": n_before - n_after,
     }
 
-    if n_synth > 0:
+    if n_bridge > 0:
         return {
             **base,
-            "type": "synthetic",
+            "type": "bridge",
             "severity": "warn",
             "total_time_shift_s": round(total_shift_s, 1),
             "warning": ("Zeitstempel wurden verschoben, um Pausen "
