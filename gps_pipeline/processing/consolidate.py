@@ -89,10 +89,14 @@ def consolidate(df: pd.DataFrame) -> pd.DataFrame:
            [["timestamp_utc", "rmc_speed_knots"]]
            .drop_duplicates(subset="timestamp_utc", keep="first"))
 
-    # 3. VTG-Geschwindigkeit pro Timestamp dazu
-    vtg = (df[df["sentence_type"] == "VTG"]
-           [["timestamp_utc", "vtg_speed_knots", "vtg_speed_kmph"]]
-           .drop_duplicates(subset="timestamp_utc", keep="first"))
+    # 3. VTG-Geschwindigkeit pro Timestamp dazu (falls vorhanden)
+    vtg_cols = [c for c in ("vtg_speed_knots", "vtg_speed_kmph") if c in df.columns]
+    if vtg_cols and "VTG" in df["sentence_type"].values:
+        vtg = (df[df["sentence_type"] == "VTG"]
+               [["timestamp_utc"] + vtg_cols]
+               .drop_duplicates(subset="timestamp_utc", keep="first"))
+    else:
+        vtg = None
 
     # 3b. GGA-Diagnosefelder (Fix-Qualität, Anzahl Sats, HDOP)
     gga_diag_cols = [c for c in ("gga_gps_quality", "gga_num_sats", "gga_hdop")
@@ -116,7 +120,8 @@ def consolidate(df: pd.DataFrame) -> pd.DataFrame:
 
     # Mergen — LEFT JOIN, weil GGA die Basis ist
     result = base.merge(rmc, on="timestamp_utc", how="left")
-    result = result.merge(vtg, on="timestamp_utc", how="left")
+    if vtg is not None:
+        result = result.merge(vtg, on="timestamp_utc", how="left")
     if gga_diag is not None:
         result = result.merge(gga_diag, on="timestamp_utc", how="left")
     if gsa_diag is not None:
@@ -126,11 +131,18 @@ def consolidate(df: pd.DataFrame) -> pd.DataFrame:
     #    - speed_knots: bevorzugt aus RMC, Fallback VTG
     #    - speed_kmh: aus VTG; wenn nicht vorhanden, aus speed_knots umrechnen
     # Float32 reicht (Sensor-Auflösung typisch ~0.01 m/s).
-    result["speed_knots"] = (
-        result["rmc_speed_knots"].astype("float32")
-        .combine_first(result["vtg_speed_knots"].astype("float32"))
-    ).astype("float32")
-    result["speed_kmh"] = result["vtg_speed_kmph"].astype("float32")
+    result["speed_knots"] = result["rmc_speed_knots"].astype("float32")
+    if "vtg_speed_knots" in result.columns:
+        result["speed_knots"] = (
+            result["rmc_speed_knots"].astype("float32")
+            .combine_first(result["vtg_speed_knots"].astype("float32"))
+        ).astype("float32")
+
+    if "vtg_speed_kmph" in result.columns:
+        result["speed_kmh"] = result["vtg_speed_kmph"].astype("float32")
+    else:
+        result["speed_kmh"] = pd.Series(dtype="float32", index=result.index)
+
     # Fehlende speed_kmh aus speed_knots berechnen (1 kn = 1.852 km/h)
     fill_mask = result["speed_kmh"].isna() & result["speed_knots"].notna()
     result.loc[fill_mask, "speed_kmh"] = result.loc[fill_mask, "speed_knots"] * 1.852

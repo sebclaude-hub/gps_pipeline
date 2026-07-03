@@ -83,6 +83,10 @@ def _drop_unlinked_rmc_vtg(df: pd.DataFrame) -> pd.DataFrame:
 
 def _drop_invalid_gsa(df: pd.DataFrame) -> pd.DataFrame:
     """GSA-Sätze mit Fix-Typ in EXCLUDE_GSA_FIX_TYPES (default: 1 = no fix) entfernen."""
+    # Nur filtern, wenn GSA-Sätze und gsa_fix_type-Spalte vorhanden sind
+    if "gsa_fix_type" not in df.columns or "GSA" not in df["sentence_type"].values:
+        return df
+
     bad = (df["sentence_type"] == "GSA") & df["gsa_fix_type"].isin(EXCLUDE_GSA_FIX_TYPES)
     n_removed = bad.sum()
     if n_removed > 0:
