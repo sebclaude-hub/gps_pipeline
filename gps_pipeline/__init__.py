@@ -18,6 +18,8 @@ from .parsing.cut_config import (
     CutSpec, CutConfig, load_cut_config, find_cut_config,
 )
 from .processing.apply_cut_config import apply_cut_config
+from .processing.merge import MergeResult, merge_tracks
+from .export.gpx_export import write_gpx
 
 __all__ = [
     "process_nmea",
@@ -35,4 +37,7 @@ __all__ = [
     "load_cut_config",
     "find_cut_config",
     "apply_cut_config",
+    "MergeResult",
+    "merge_tracks",
+    "write_gpx",
 ]

@@ -21,6 +21,8 @@ const GRADIENT_META: Partial<Record<ColorMode, { label: string; unit: string }>>
   altitude: { label: "Höhe (MSL)", unit: "m" },
   altitude_gnd: { label: "Höhe (GND)", unit: "m" },
   energy: { label: "Spezifische Energie", unit: "m" },
+  // HDOP ist einheitenlos (niedriger = besser).
+  accuracy: { label: "GPS-Genauigkeit (HDOP)", unit: "" },
 };
 
 /**

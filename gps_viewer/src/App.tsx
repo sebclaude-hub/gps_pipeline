@@ -130,6 +130,7 @@ export default function App() {
               onChange={setColorMode}
               enableTerrainModes={meta.has_terrain}
               enableDerivedModes={Array.isArray(track.points.accel_mps2)}
+              enableAccuracyMode={(track.points.hdop ?? []).some((v) => v != null)}
             />
             <ToggleSwitch<CurtainMode>
               value={curtainMode}

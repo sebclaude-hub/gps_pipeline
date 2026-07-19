@@ -38,7 +38,9 @@ import pandas as pd
 
 _GPX_NS = {"gpx": "http://www.topografix.com/GPX/1/1"}
 
-# Schema-B-Spalten (gleich wie processing/consolidate.py):
+# Schema-B-Spalten (gleich wie processing/consolidate.py). ``gga_hdop`` traegt
+# den NMEA-Spaltennamen, damit GPX-<hdop> denselben Weg durch json_export
+# (Viewer-Feld "hdop") nimmt wie NMEA-GGA-HDOP.
 _SCHEMA_B_COLUMNS = [
     "timestamp_utc",
     "directional_latitude",
@@ -46,6 +48,7 @@ _SCHEMA_B_COLUMNS = [
     "altitude_corrected",
     "speed_kmh",
     "speed_knots",
+    "gga_hdop",
 ]
 
 
@@ -154,6 +157,7 @@ def parse_gpx_file(gpx_file_path: str) -> pd.DataFrame:
             "altitude_corrected": elevation,
             "speed_kmh": speed_kmh,
             "speed_knots": speed_knots,
+            "gga_hdop": _parse_float_child(trkpt, "hdop"),
         })
 
     if not rows:
@@ -175,7 +179,7 @@ def parse_gpx_file(gpx_file_path: str) -> pd.DataFrame:
     # nicht 64-bit.
     for col in ("directional_latitude", "directional_longitude"):
         df[col] = df[col].astype("float64")
-    for col in ("altitude_corrected", "speed_kmh", "speed_knots"):
+    for col in ("altitude_corrected", "speed_kmh", "speed_knots", "gga_hdop"):
         df[col] = df[col].astype("float32")
 
     # Stabil sortieren (Original-Reihenfolge bei gleichem Timestamp bleibt erhalten)

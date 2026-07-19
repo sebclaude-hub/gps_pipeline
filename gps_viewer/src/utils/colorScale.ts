@@ -23,6 +23,11 @@ export function colorScaleFor(track: TrackData, mode: ColorMode): ColorScale {
       return { values: track.points.above_terrain, breaks: qb.altitude_gnd_m ?? [] };
     case "energy":
       return { values: track.points.energy_height_m ?? [], breaks: qb.energy_height_m ?? [] };
+    case "accuracy":
+      // HDOP (GPS-Genauigkeit): einheitenlos, niedriger = besser. Umrechnung
+      // in Meter (Faustregel): Fehler ~ HDOP x UERE (3-5 m Einfrequenz-GPS
+      // ohne Korrektur, ~1 m mit SBAS/EGNOS).
+      return { values: track.points.hdop ?? [], breaks: qb.hdop ?? [] };
     default:
       // speed (auch fuer flight/drone/accel/energy_rate, die ihre Faerbung
       // separat regeln) → Speed-Skala.

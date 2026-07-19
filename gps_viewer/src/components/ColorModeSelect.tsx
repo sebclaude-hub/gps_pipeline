@@ -8,9 +8,11 @@ interface Props {
   /** Wenn false (alte track.json ohne die Felder), sind die abgeleiteten Modi
    *  (Beschl./Energie/ΔEnergie) disabled. */
   enableDerivedModes: boolean;
+  /** Wenn false (Track ohne HDOP-Werte, z.B. KML/IGC), ist "HDOP" disabled. */
+  enableAccuracyMode: boolean;
 }
 
-type Need = "terrain" | "derived" | null;
+type Need = "terrain" | "derived" | "hdop" | null;
 
 const OPTIONS: { value: ColorMode; label: string; need: Need }[] = [
   { value: "speed",        label: "km/h",     need: null },
@@ -21,6 +23,7 @@ const OPTIONS: { value: ColorMode; label: string; need: Need }[] = [
   { value: "accel",        label: "Beschl.",  need: "derived" },
   { value: "energy",       label: "Spez. Energie", need: "derived" },
   { value: "energy_rate",  label: "Energierate",   need: "derived" },
+  { value: "accuracy",     label: "HDOP",     need: "hdop" },
 ];
 
 /**
@@ -30,7 +33,7 @@ const OPTIONS: { value: ColorMode; label: string; need: Need }[] = [
  * (YlOrRd/YlGnBu), "flight"/"drone" regelbasiert am Vorhang. Terrain-Modi sind
  * ohne DEM disabled, abgeleitete Modi ohne die Pipeline-Felder.
  */
-export function ColorModeSelect({ value, onChange, enableTerrainModes, enableDerivedModes }: Props) {
+export function ColorModeSelect({ value, onChange, enableTerrainModes, enableDerivedModes, enableAccuracyMode }: Props) {
   return (
     <div
       role="radiogroup"
@@ -46,7 +49,8 @@ export function ColorModeSelect({ value, onChange, enableTerrainModes, enableDer
       {OPTIONS.map((opt) => {
         const disabled =
           (opt.need === "terrain" && !enableTerrainModes) ||
-          (opt.need === "derived" && !enableDerivedModes);
+          (opt.need === "derived" && !enableDerivedModes) ||
+          (opt.need === "hdop" && !enableAccuracyMode);
         const active = opt.value === value;
         return (
           <button
@@ -60,7 +64,9 @@ export function ColorModeSelect({ value, onChange, enableTerrainModes, enableDer
               disabled
                 ? (opt.need === "terrain"
                     ? "Benoetigt ein geladenes DEM (Terrain)"
-                    : "Track ohne abgeleitete Felder (Pipeline neu exportieren)")
+                    : opt.need === "hdop"
+                      ? "Track ohne HDOP-Werte (NMEA-GGA oder GPX-<hdop> noetig)"
+                      : "Track ohne abgeleitete Felder (Pipeline neu exportieren)")
                 : `Farbmodus: ${opt.label}`
             }
             style={{

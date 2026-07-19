@@ -41,6 +41,8 @@ export interface QuantileBreaks {
   altitude_gnd_m?: number[];
   /** Spezifische Energie (Hoehenaequivalent) — fuer "energy". Optional. */
   energy_height_m?: number[];
+  /** HDOP (GPS-Genauigkeit) — fuer "accuracy". Optional (aeltere JSON). */
+  hdop?: number[];
   n_quantiles: number;
 }
 
@@ -52,7 +54,8 @@ export type ColorMode =
   | "drone"
   | "accel"
   | "energy"
-  | "energy_rate";
+  | "energy_rate"
+  | "accuracy";
 
 export interface TrackPoints {
   lat: number[];

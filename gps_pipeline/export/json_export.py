@@ -220,6 +220,10 @@ def export_track_json(
     )
     # Quantilgrenzen fuer die vorzeichenlosen Modi (GND = above_terrain, Energie).
     agl_breaks, _ = _compute_quantile_breaks(above, n_quantiles)
+    # HDOP (GPS-Genauigkeit) — Grenzen fuer den "accuracy"-Farbmodus im Viewer.
+    # Ohne HDOP-Werte (KML/IGC) entstehen Null-Grenzen; der Viewer graut den
+    # Modus dann aus (Gate auf vorhandene hdop-Punktwerte).
+    hdop_breaks, _ = _compute_quantile_breaks(hdop, n_quantiles)
     energy_breaks, _ = _compute_quantile_breaks(
         pd.Series(energy_h, index=df_c.index), n_quantiles
     )
@@ -283,6 +287,7 @@ def export_track_json(
             # neuen Farbmodi. Werden viewer-seitig nur noch auf Farbe gemappt.
             "altitude_gnd_m": agl_breaks,
             "energy_height_m": energy_breaks,
+            "hdop": hdop_breaks,
             "n_quantiles": n_quantiles,
         },
         # Robuste, symmetrische Skalen der signierten Groessen (Beschl./ΔEnergie):
